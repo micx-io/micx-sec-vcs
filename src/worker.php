@@ -35,6 +35,7 @@ $channel->confirm_select();
 $nacked=false;
 $channel->set_nack_handler(function () use (&$nacked) { $nacked=true; });
 $channel->basic_consume('micx.vcs.v1.requests','',false,false,false,false,function (AMQPMessage $msg) use ($dispatcher,$channel,&$nacked,&$stopping) {
+    try {
     if ($stopping) { $msg->nack(true); return; }
     $reply=$msg->has('reply_to') ? $msg->get('reply_to') : '';
     $id=$msg->has('correlation_id') ? $msg->get('correlation_id') : '';
@@ -49,6 +50,10 @@ $channel->basic_consume('micx.vcs.v1.requests','',false,false,false,false,functi
     $channel->wait_for_pending_acks(10);
     if ($nacked) throw new \RuntimeException('Response not confirmed');
     $msg->ack();
+    } catch (\PhpAmqpLib\Exception\AMQPTimeoutException $e) {
+        // A timeout inside request handling is not the harmless idle poll timeout below.
+        throw new \PhpAmqpLib\Exception\AMQPRuntimeException('RPC handler timed out',0,$e);
+    }
 });
 fwrite(STDOUT,"MICX VCS worker ready\n");
 try {

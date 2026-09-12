@@ -1,6 +1,6 @@
 FROM php:8.3-cli-alpine AS base
 RUN apk add --no-cache git openssh-client yaml \
- && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS yaml-dev \
+ && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS yaml-dev linux-headers \
  && pecl install yaml-2.2.4 \
  && docker-php-ext-enable yaml \
  && docker-php-ext-install bcmath sockets \

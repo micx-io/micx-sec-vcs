@@ -30,7 +30,7 @@ jobs:
           export VCS_STATE_DIR="$RUNNER_TEMP/micx-state"
           broker_id='${{ job.services.rabbitmq.id }}'
           docker exec "$broker_id" rabbitmqctl stop_app
-          sh docker/supervisor.sh php src/worker.php > "$RUNNER_TEMP/worker.log" 2>&1 &
+          sh docker/supervisor.sh php src/worker.php >> "$RUNNER_TEMP/worker.log" 2>&1 &
           supervisor_pid=$!
           second_pid=''
           trap 'kill "$supervisor_pid" ${second_pid:-} 2>/dev/null || true; cat "$RUNNER_TEMP/worker.log"' EXIT

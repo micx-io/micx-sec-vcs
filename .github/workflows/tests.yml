@@ -1,16 +1,41 @@
 name: tests
-
-on: [push]
-
+on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
-  build:
-
+  php:
     runs-on: ubuntu-latest
-    
+    services:
+      rabbitmq:
+        image: rabbitmq:4-alpine
+        ports: [5672:5672]
+        options: --health-cmd "rabbitmq-diagnostics -q ping" --health-interval 5s --health-timeout 5s --health-retries 20
     steps:
-    - uses: actions/checkout@v1
-    - name: Download kickstart
-      run: curl -o ./kickstart.sh 'https://raw.githubusercontent.com/nfra-project/nfra-kickstart/master/dist/kickstart.sh' && chmod +x ./kickstart.sh
-    - name: UnitTests
-      run: ./kickstart.sh :test
-  
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: yaml, mbstring, bcmath, sockets
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - run: find src test -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: RPC integration and unit tests
+        env:
+          AMQP_TEST_HOST: 127.0.0.1
+          AMQP_HOST: 127.0.0.1
+          AMQP_USER: guest
+          AMQP_PASSWORD: guest
+        run: |
+          export VCS_DATA_DIR="$RUNNER_TEMP/micx-data"
+          export VCS_STATE_DIR="$RUNNER_TEMP/micx-state"
+          php src/worker.php > "$RUNNER_TEMP/worker.log" 2>&1 &
+          worker_pid=$!
+          trap 'kill "$worker_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 50); do
+            if grep -q 'worker ready' "$RUNNER_TEMP/worker.log"; then break; fi
+            sleep 0.1
+          done
+          cat "$RUNNER_TEMP/worker.log"
+          kill -0 "$worker_pid"
+          composer test
+      - run: docker build -t micx-sec-vcs:test .

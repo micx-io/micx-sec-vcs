@@ -3,6 +3,7 @@
 | Datum | Benutzername | Kurzbeschreibung |
 |---|---|---|
 | 2026-09-12 | dermatthes | §§ 1–9: Erstentwurf mit Service, SDK, Sicherheitsmodell und Tests |
+| 2026-09-12 | dermatthes | § 5: Supervisor, begrenzter Backoff und aktive Heartbeats ergänzt |
 
 ## § 1 Ziel und Komponenten
 
@@ -93,7 +94,7 @@ Vor einer Operation wird unter dem Request-Lock ein begonnenes Journal geschrieb
 
 Der Worker bestätigt den Request erst nach dem gespeicherten Ergebnis und bestätigter Antwortpublikation. Ist die exklusive Reply-Queue inzwischen verschwunden, kann der Client über dieselbe ID das gespeicherte Ergebnis abholen. Ein Client-Timeout bricht eine bereits laufende Git-Operation nicht ab. Das SDK führt deshalb keine automatischen Retries mit neuer ID durch. Für Retries `MixVcs::call` mit derselben gespeicherten ID und denselben Parametern verwenden; `commit` hat zusätzlich ein requestId-Argument.
 
-Einzelne Git-Prozesse haben 45 Sekunden Laufzeitlimit; SDK-Wartezeit standardmäßig 60 Sekunden, konfigurierbar bis 300 Sekunden. Mehrschrittige Operationen können länger als 60 Sekunden brauchen. Der Worker nutzt für blockierende Git-Arbeit deaktivierte AMQP-Heartbeats; TCP-Verbindungsfehler lassen den Prozess aussteigen und Docker startet ihn neu. Ein Folgeausbau kann Heartbeats unabhängig vom synchronen Git-Prozess senden.
+Einzelne Git-Prozesse haben 45 Sekunden Laufzeitlimit; SDK-Wartezeit standardmäßig 60 Sekunden, konfigurierbar bis 300 Sekunden. Mehrschrittige Operationen können länger als 60 Sekunden brauchen. Der Worker verwendet AMQP-Heartbeats mit 60 Sekunden und einem PCNTL-Signal-Sender auch während blockierender Git-Arbeit. Ein Supervisor bleibt bei Brokerfehlern im Container aktiv und startet genau einen Worker nach 1, 2, 4, 8, 16 und maximal 30 Sekunden Pause neu; nach mindestens 60 Sekunden Prozesslaufzeit wird der Backoff zurückgesetzt. Sichere Fehlerkategorien und nächste Versuche stehen im Container-Log. Weitere Worker werden über Container-Replikate skaliert; siehe [separater Skalierungsvorschlag](2026-09-12-worker-scaling.md). [geändert]
 
 ## § 6 Sicherheit und Betriebsgrenzen
 

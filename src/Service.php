@@ -41,7 +41,7 @@ final class Service
                     $git->commit($message);
                     if (($params['push'] ?? false) === true) {
                         try { $git->push(); }
-                        catch (Fault $e) { throw new Fault('PUSH_FAILED', 'Local commit exists; inspect remote before retrying push', ['revision'=>$git->getRev()]); }
+                        catch (Fault $e) { throw new Fault('PUSH_FAILED', 'Local commit exists; inspect remote before retrying push', ['revision'=>$git->getRev(),'cause'=>['code'=>$e->kind,'message'=>$e->getMessage()]]); }
                     }
                     break;
                 case 'push':

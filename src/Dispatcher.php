@@ -7,10 +7,11 @@ final class Dispatcher
     public function handle(array $request): array
     {
         $id = $request['id'] ?? null;
+        $started = false;
         try {
             if (($request['version'] ?? null)!==1 || !is_string($id) || !preg_match('/^[A-Za-z0-9_-]{8,128}$/D',$id)
                 || !is_string($request['method'] ?? null) || !is_array($request['params'] ?? null)) throw new Fault('INVALID_REQUEST','Invalid version 1 request');
-            return $this->storage->lock('request:'.$id, function () use ($request,$id) {
+            return $this->storage->lock('request:'.$id, function () use ($request,$id,&$started) {
                 $file=$this->storage->state.'/requests/'.hash('sha256',$id).'.json';
                 $hash=hash('sha256',json_encode($request,JSON_THROW_ON_ERROR));
                 if (is_file($file)) {
@@ -21,6 +22,7 @@ final class Dispatcher
                 }
                 $this->storage->save($file,['hash'=>$hash,'startedAt'=>gmdate('c')]);
                 try {
+                    $started=true;
                     $result=($this->execute)($request['method'],$request['params']);
                     $response=['version'=>1,'id'=>$id,'ok'=>true,'result'=>$result];
                 } catch (Fault $e) { $response=$this->error($id,$e); }
@@ -31,6 +33,12 @@ final class Dispatcher
                 return $response;
             });
         } catch (Fault $e) { return $this->error(is_string($id)?$id:null,$e); }
+        catch (\Throwable $e) {
+            // A failed final journal write must not be reported as a safely retryable storage failure.
+            return $this->error(is_string($id)?$id:null, $started
+                ? new Fault('OUTCOME_UNKNOWN','Cannot persist operation result; inspect workspace before another write')
+                : new Fault('IO_ERROR','Cannot access request journal or lock; operation was not started'));
+        }
     }
     private function error(?string $id, Fault $error): array
     {

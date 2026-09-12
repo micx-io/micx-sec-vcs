@@ -46,3 +46,49 @@ composer test
 ```
 
 PHP 8.3+, YAML-Erweiterung, Git. Die CI prüft PHP-Syntax, PHPUnit und Docker-Build. Keine Schlüssel für Unit- und lokale Git-Tests erforderlich. Secrets sind in `.gitignore` ausgeschlossen und werden nicht in den Build-Kontext aufgenommen.
+
+## Fehler, Parallelität und Broker-Ausfall
+
+Jeder gültige RPC-Request erhält entweder ein Ergebnis oder `error.code`, `error.message` und `error.details`. Das SDK wirft daraus `RpcException`; die Meldung ist über `getMessage()` verfügbar. Git-Diagnosen werden lokal klassifiziert: Rohes stderr, Befehlszeilen und Secrets werden nicht an Clients weitergegeben. Nicht erkannte Git-Fehler bleiben `GIT_FAILED`.
+
+| Fehlercode | Bedeutung / nächste Aktion |
+|---|---|
+| `SSH_KEY_INVALID` | Key beschädigt, verschlüsselt oder unsichere Dateirechte; Service-Secret prüfen |
+| `SSH_AUTH_FAILED` | SSH-Anmeldung abgelehnt; Key und Repository-Berechtigungen prüfen |
+| `SSH_HOST_KEY_FAILED` | Hostschlüssel fehlt oder stimmt nicht; `known_hosts` unabhängig prüfen |
+| `REPOSITORY_UNAVAILABLE` | Repository fehlt oder Zugriff verweigert; Server unterscheiden das oft absichtlich nicht |
+| `REMOTE_UNREACHABLE` | DNS-, Netzwerk- oder SSH-Verbindungsfehler |
+| `BRANCH_NOT_FOUND`, `EMPTY_REPOSITORY` | Branch fehlt bzw. Remote-HEAD bezeichnet keinen Branch |
+| `PUSH_REJECTED` | Neuere Remote-Commits, Branchschutz oder Server-Hook verhindern Push |
+| `PUSH_FAILED` | Kombinierter Commit/Push fehlgeschlagen; lokale Revision und `details.cause` prüfen |
+| `CONFLICT`, `DIRTY_WORKTREE`, `MERGE_FAILED` | Veralteter Zustand, uncommittete Änderungen oder Mergeproblem; Status abgleichen |
+| `BUSY` | Sperre nach fünf Sekunden nicht verfügbar; Operation wurde nicht ausgeführt |
+| `IO_ERROR` | Journal, Rechte, voller Datenträger oder anderes Storageproblem; bei Schreiboperationen sind Teilergebnisse möglich |
+| `OUTCOME_UNKNOWN` | Ausführung oder Speicherung des Ergebnisses unterbrochen; Zustand prüfen, niemals blind mit neuer ID schreiben |
+| `INVALID_REQUEST`, `UNKNOWN_METHOD`, `INVALID_REPOSITORY`, `INVALID_BRANCH`, `INVALID_PATH` | Aufruf oder Parameter korrigieren |
+| `NOT_FOUND`, `DIRECTORY_EXISTS`, `TOO_LARGE`, `ID_REUSED` | Workspace/Datei fehlt, Ziel belegt, Limit überschritten oder ID für andere Parameter verwendet |
+
+Ein Worker verarbeitet durch synchronen Callback und Prefetch 1 genau einen Request gleichzeitig. N Worker können bis zu N Requests bearbeiten. Gleiche Workspaces werden über `flock` serialisiert; verschiedene Workspaces können parallel laufen. Checkouts halten zusätzlich eine globale Registry-Sperre. Sperren warten höchstens fünf Sekunden und garantieren keine FIFO-Reihenfolge. Auch ein Leser wartet auf einen Schreiber. Direkte Dateizugriffe anderer Anwendungen nehmen nicht automatisch an diesen Sperren teil.
+
+Gleiche Request-IDs werden zusätzlich gesperrt und über das gemeinsame Journal dedupliziert. Ein gespeichertes Ergebnis wird wiedergegeben; bei einem begonnenen Request ohne Ergebnis folgt `OUTCOME_UNKNOWN`. Ein gespeichertes `BUSY` bleibt bei derselben ID erhalten; nach diesem bestätigten Nicht-Ausführen kann ein neuer Versuch eine neue ID nutzen. Voraussetzung: identische, verlässlich lockfähige `/state`- und `/data`-Volumes für alle Worker. Separate Volumes oder ungeprüftes NFS erfüllen diese Voraussetzung nicht.
+
+**Queue fällt aus:** Ein kleiner Supervisor bleibt als PID 1 aktiv und startet genau einen Worker-Unterprozess. Bei fehlender oder verlorener Broker-Verbindung meldet der Worker eine sichere Fehlerkategorie; der Supervisor protokolliert Exit-Status und nächsten Versuch. Wiederanlaufpausen: **1, 2, 4, 8, 16, 30, 30 … Sekunden**, ohne Abbruch nach einer maximalen Versuchszahl. Nach mindestens 60 Sekunden Prozesslaufzeit wird die Pause auf eine Sekunde zurückgesetzt. Das ist die Wartezeit *zwischen* Versuchen; Verbindungsaufbau und Fehlererkennung dauern zusätzlich. AMQP-Heartbeats (60 Sekunden, Signal-Sender auch während Git-Arbeit) erkennen ausgefallene Verbindungen; ein stiller Netzwerkausfall wird nicht zwingend sofort erkannt. Beispiele:
+
+```text
+worker: AMQP_UNAVAILABLE: connection failed or was lost; check broker, DNS and network; supervisor will restart
+supervisor: worker stopped (exit=0); retry in 4s
+supervisor: starting worker
+MICX VCS worker ready
+```
+
+`docker compose logs -f vcs` zeigt die Diagnose. `AMQP_CONNECTION` verweist auf Anmeldung/VHost, `AMQP_CHANNEL` auf Queue-Konfiguration/Rechte, `WORKER_ERROR` auf Service-/Storagekonfiguration. Es werden keine rohen AMQP-Exceptions oder Zugangsdaten ausgegeben. Auch bei dauerhaft falscher Konfiguration bleibt der Supervisor aktiv; „Container läuft“ bedeutet daher nicht „RPC bereit“. Nach Korrektur ist ggf. ein Container-Neustart zur Übernahme neuer Environment-Variablen nötig.
+
+Ein bereits laufender Git-Befehl kann vor Erkennung des Brokerfehlers fertig werden. Der Worker speichert das Ergebnis vor Reply und Request-Ack. Nicht bestätigte Requests können nach Wiederherstellung erneut zugestellt werden und erhalten dann das gespeicherte Ergebnis. Die persistenten Queue- und Journal-Volumes müssen erhalten bleiben; ein Verlust dieser Daten hebt diese Absicherung auf. Fehlende Secrets werden vor dem Supervisor im Entrypoint geprüft und verhindern weiterhin den Containerstart; Brokerprobleme beenden den Container dagegen nicht. Compose `restart: unless-stopped` bleibt als zusätzliche Absicherung bei Container-/Hostausfällen bestehen.
+
+SIGTERM wird vom Supervisor an den Worker weitergereicht; dieser nimmt keine weitere Arbeit an, beendet den laufenden Request und schließt die Verbindung. Während Backoff unterbricht SIGTERM das Warten sofort. Überschreitet die Arbeit die Compose-Stopfrist von 60 Sekunden, kann Docker sie hart abbrechen; dann gelten Journal und `OUTCOME_UNKNOWN`.
+
+Ein verlorenes Reply bzw. ein Client-Timeout bricht Git nicht ab. Das SDK verbindet sich nicht selbst neu: Die Anwendung erstellt eine neue AMQP-Verbindung und wiederholt nur dieselbe ID mit identischen Parametern. Kanalaufbaufehler melden `UNAVAILABLE`; ein Verbindungsabbruch ab Publish-Beginn meldet konservativ `OUTCOME_UNKNOWN`. Verbindungsaufbau außerhalb des SDK kann die ursprüngliche AMQP-Exception werfen. Eine vorhandene Queue ohne aktive Worker führt zum Timeout. Broker-Downtime kann daher länger dauern als der einzelne RPC-Timeout.
+
+Die Tests decken Fehlerklassifikation, parallele Prozesse mit Workspace-/Request-Sperren und Journalfehler ab. Die CI prüft zusätzlich Start ohne Broker, Broker-Unterbrechung und Wiederaufnahme mit zwei Workern. Ein echter Broker-Neustart mitten in einem Remote-Push und Storage-Ausfälle auf dem vorgesehenen Produktionsvolume sind noch nicht end-to-end validiert.
+
+Separater [Vorschlag zur Worker-Skalierung](docs/2026-09-12-worker-scaling.md): ein aktiver Worker pro Container; der Supervisor verwaltet dessen Lebenszyklus, keinen internen Worker-Pool.

@@ -24,11 +24,13 @@ final class SecureGit extends GitRepository
         $p = proc_open(array_merge($base, $args), [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes, $this->work, $env);
         if (!is_resource($p)) throw new Fault('GIT_FAILED', 'Cannot start Git');
         fclose($pipes[0]); stream_set_blocking($pipes[1], false); stream_set_blocking($pipes[2], false);
-        $out = ''; $errSize = 0; $exit = -1; $end = microtime(true)+45;
+        $out = ''; $err = ''; $errSize = 0; $exit = -1; $end = microtime(true)+45;
         try {
             do {
                 $out .= stream_get_contents($pipes[1]);
-                $errSize += strlen(stream_get_contents($pipes[2]));
+                $chunk = stream_get_contents($pipes[2]);
+                $errSize += strlen($chunk);
+                $err .= substr($chunk, 0, max(0, 65536-strlen($err)));
                 if (strlen($out)>$maxBytes || $errSize>1048576) throw new Fault('TOO_LARGE', 'Git output limit exceeded');
                 $status = proc_get_status($p);
                 if (!$status['running']) { $exit = $status['exitcode']; break; }
@@ -36,13 +38,31 @@ final class SecureGit extends GitRepository
                 usleep(10000);
             } while (true);
             $out .= stream_get_contents($pipes[1]);
+            $err .= substr(stream_get_contents($pipes[2]), 0, max(0, 65536-strlen($err)));
             if (strlen($out)>$maxBytes) throw new Fault('TOO_LARGE', 'Git output limit exceeded');
         } finally {
             $status = proc_get_status($p);
             if ($status['running']) { proc_terminate($p, 9); }
             fclose($pipes[1]); fclose($pipes[2]); proc_close($p);
         }
-        if ($exit !== 0) throw new Fault('GIT_FAILED', 'Git operation failed', ['exitCode'=>$exit]);
+        if ($exit !== 0) {
+            // SECURITY: classify diagnostics locally; never return raw stderr, keys or command lines.
+            $code = 'GIT_FAILED'; $message = 'Git operation failed; inspect server configuration and workspace status';
+            $patterns = [
+                'SSH_KEY_INVALID'=>['~invalid format|error in libcrypto|bad permissions|unprotected private key|incorrect passphrase~i', 'SSH private key is invalid, encrypted or has unsafe permissions; check the service secret'],
+                'SSH_HOST_KEY_FAILED'=>['~host key verification failed|remote host identification has changed~i', 'SSH host key verification failed; verify the server against known_hosts'],
+                'SSH_AUTH_FAILED'=>['~permission denied \(publickey|no supported authentication methods~i', 'SSH authentication failed; check the service key and repository permissions'],
+                'REPOSITORY_UNAVAILABLE'=>['~repository .*not found|repository not found|does not appear to be a git repository|access denied~i', 'Repository does not exist or is not accessible to the service key'],
+                'REMOTE_UNREACHABLE'=>['~could not resolve hostname|connection timed out|connection refused|no route to host|network is unreachable|connection reset|connection closed~i', 'Git remote cannot be reached; check DNS, network and SSH service'],
+                'BRANCH_NOT_FOUND'=>['~couldn.t find remote ref|remote branch .* not found~i', 'Requested branch does not exist on the remote'],
+                'PUSH_REJECTED'=>['~\[rejected\]|\[remote rejected\]|pre-receive hook declined~i', 'Remote rejected the push; check newer commits, branch protection and server hooks'],
+                'IO_ERROR'=>['~no space left on device|read-only file system|disk quota exceeded|permission denied~i', 'Git cannot access storage; check free space, quota and filesystem permissions'],
+            ];
+            foreach ($patterns as $kind=>[$pattern,$description]) {
+                if (preg_match($pattern,$err)) { $code=$kind; $message=$description; break; }
+            }
+            throw new Fault($code, $message, ['exitCode'=>$exit]);
+        }
         return $out;
     }
     public function initialize(string $branch): void

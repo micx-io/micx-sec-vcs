@@ -13,4 +13,4 @@ fi
 unset VCS_SSH_KEY
 cat "${VCS_KNOWN_HOSTS_FILE:-/run/secrets/known_hosts}" > /run/micx/known_hosts
 chmod 600 /run/micx/id_key /run/micx/known_hosts
-exec php /app/src/worker.php
+exec sh /app/docker/supervisor.sh php /app/src/worker.php

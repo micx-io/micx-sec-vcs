@@ -26,4 +26,31 @@ final class RabbitMqIntegrationTest extends TestCase
             self::assertSame($responses[0],$responses[1]);
         } finally { $ch->close(); $c->close(); }
     }
+    public function testConcurrentRequestsEachReceiveExactlyTheirOwnReply(): void
+    {
+        if (!getenv('AMQP_TEST_HOST')) self::markTestSkipped('Requires running workers');
+        $c=new AMQPStreamConnection(getenv('AMQP_TEST_HOST'),5672,'guest','guest'); $ch=$c->channel();
+        try {
+            [$reply]=$ch->queue_declare('micx.vcs.reply.'.bin2hex(random_bytes(16)),false,false,true,true);
+            $expected=[]; $received=[];
+            $ch->basic_consume($reply,'',false,true,false,false,function(AMQPMessage $m) use (&$received,&$expected) {
+                $id=$m->get('correlation_id'); $body=json_decode($m->getBody(),true);
+                self::assertArrayHasKey($id,$expected);
+                self::assertArrayNotHasKey($id,$received);
+                self::assertSame($id,$body['id']);
+                self::assertSame('INVALID_REPOSITORY',$body['error']['code']);
+                $received[$id]=true;
+            });
+            for($i=0;$i<20;++$i) {
+                $id=bin2hex(random_bytes(16)); $expected[$id]=true;
+                $ch->basic_publish(new AMQPMessage(json_encode(['version'=>1,'id'=>$id,'method'=>'checkout','params'=>['url'=>'file:///invalid-'.$i]]),['correlation_id'=>$id,'reply_to'=>$reply]),'micx.vcs.v1','rpc.request');
+            }
+            $deadline=microtime(true)+10;
+            while(count($received)<20) {
+                self::assertGreaterThan(0,$remaining=$deadline-microtime(true));
+                $ch->wait(null,false,$remaining);
+            }
+            self::assertCount(20,$received);
+        } finally { $ch->close(); $c->close(); }
+    }
 }

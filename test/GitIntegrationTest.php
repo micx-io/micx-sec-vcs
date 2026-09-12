@@ -41,4 +41,32 @@ final class GitIntegrationTest extends TestCase
         $service->execute('commit',['workspace'=>$id,'expectedRevision'=>$updated['revision'],'expectedGeneration'=>1,'message'=>'Changed']);
         self::assertSame('second',base64_decode($service->execute('snapshot',['workspace'=>$id])['files'][0]['content']));
     }
+    public function testGitDiagnosticsBecomeSafeActionableFaults(): void
+    {
+        $base=sys_get_temp_dir().'/micx-errors-'.bin2hex(random_bytes(8)); mkdir($base); mkdir($base.'/work');
+        $git=new SecureGit('git@example.test:repo.git',$base.'/work',$base.'/private.git',$base.'/key',$base.'/known_hosts');
+        $git->run(['init','--bare',$base.'/private.git']);
+        $cases = [
+            'Load key "/secret/key": invalid format'=>'SSH_KEY_INVALID',
+            'Permission denied (publickey).'=>'SSH_AUTH_FAILED',
+            'Host key verification failed.'=>'SSH_HOST_KEY_FAILED',
+            'ERROR: Repository not found.'=>'REPOSITORY_UNAVAILABLE',
+            'ssh: Could not resolve hostname example.test'=>'REMOTE_UNREACHABLE',
+            "fatal: couldn't find remote ref missing"=>'BRANCH_NOT_FOUND',
+            '! [rejected] main -> main (non-fast-forward)'=>'PUSH_REJECTED',
+            'No space left on device'=>'IO_ERROR',
+            'unexpected failure'=>'GIT_FAILED',
+        ];
+        foreach ($cases as $diagnostic=>$code) {
+            // Real Git subprocess with deterministic stderr; no SSH service or secret required.
+            $command='!printf %s '.escapeshellarg($diagnostic.' PRIVATE_SENTINEL').' >&2; false';
+            try { $git->run(['-c','alias.fail='.$command,'fail']); self::fail('Expected Git failure'); }
+            catch (\Micx\SecVcs\Fault $e) {
+                self::assertSame($code,$e->kind);
+                self::assertNotSame('Git operation failed',$e->getMessage());
+                self::assertStringNotContainsString('PRIVATE_SENTINEL',json_encode([$e->getMessage(),$e->details]));
+                self::assertStringNotContainsString('/secret/key',$e->getMessage());
+            }
+        }
+    }
 }

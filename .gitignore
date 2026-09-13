@@ -23,7 +23,6 @@
 # Dependencies / generated files
 /vendor
 /node_modules
-/composer.lock
 
 # Temporary / backup files
 *.tmp
@@ -55,3 +54,7 @@ Desktop.ini
 $RECYCLE.BIN/
 .Trashes/
 
+
+# MICX runtime and credentials
+/secrets/
+/.phpunit.cache/

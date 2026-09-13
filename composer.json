@@ -1,7 +1,7 @@
 {
-  "name": "phore/project",
-  "type": "library",
-  "description": "",
+  "name": "micx-io/micx-sec-vcs",
+  "type": "project",
+  "description": "Private-key isolated Git RPC worker",
   "license": "MIT",
   "authors": [
     {
@@ -11,27 +11,28 @@
   ],
   "autoload": {
     "psr-4": {
-      "Phore\\FileSystem\\": "src/"
-    },
-    "files": [
-      "src/functions.php"
-    ]
+      "Micx\\SecVcs\\": "src/"
+    }
   },
   "require": {
-    "php" : ">=8.3",
+    "php": ">=8.3",
+    "ext-json": "*",
     "ext-yaml": "*",
-    "ext-json": "*"
+    "phore/vcs": "^1.0",
+    "php-amqplib/php-amqplib": "^3.7"
   },
   "require-dev": {
-    "phpunit/phpunit": "^13.2.2"
+    "phpunit/phpunit": "^11.5"
   },
-  "suggest": {
-  },
+  "suggest": {},
   "config": {
     "preferred-install": "source",
     "allow-plugins": {
       "php-http/discovery": false
     }
   },
-  "minimum-stability": "dev"
+  "minimum-stability": "stable",
+  "scripts": {
+    "test": "phpunit"
+  }
 }

@@ -41,6 +41,54 @@ final class GitIntegrationTest extends TestCase
         $service->execute('commit',['workspace'=>$id,'expectedRevision'=>$updated['revision'],'expectedGeneration'=>1,'message'=>'Changed']);
         self::assertSame('second',base64_decode($service->execute('snapshot',['workspace'=>$id])['files'][0]['content']));
     }
+    public function testCreateWorkspaceAndFirstCommitWithoutMetadata(): void
+    {
+        $base=sys_get_temp_dir().'/micx-create-'.bin2hex(random_bytes(8));
+        $storage=new \Micx\SecVcs\Storage($base.'/data',$base.'/state');
+        $service=new \Micx\SecVcs\Service($storage,$base.'/key',$base.'/known_hosts');
+        $repo=$service->execute('create',['url'=>'git@example.test:new.git','directory'=>'project']);
+        self::assertSame($base.'/data/project',$repo['path']);
+        self::assertSame('',$repo['revision']);
+        self::assertSame('main',$repo['branch']);
+        self::assertFileDoesNotExist($repo['path'].'/.git');
+        $args=['workspace'=>$repo['workspace']];
+        $service->execute('update',$args+['files'=>[['path'=>'hello.txt','content'=>base64_encode('Hello')]]]);
+        $commit=$service->execute('commit',$args);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{40,64}$/',$commit['revision']);
+        self::assertSame($commit['revision'],$service->execute('commit',$args)['revision']);
+        self::assertSame($repo['workspace'],$service->execute('create',['url'=>'git@example.test:new.git','directory'=>'project'])['workspace']);
+    }
+    public function testMergeKeepsOursAndAcceptsNonConflictingRemoteChanges(): void
+    {
+        $base=sys_get_temp_dir().'/micx-merge-'.bin2hex(random_bytes(8)); mkdir($base); mkdir($base.'/work');
+        $git=new SecureGit('git@example.test:repo.git',$base.'/work',$base.'/private.git',$base.'/key',$base.'/known_hosts');
+        $git->initialize('main', true);
+        foreach (['content.txt','deleted-locally.txt','deleted-remotely.txt','binary.dat'] as $path) {
+            file_put_contents($base.'/work/'.$path, "base\n");
+        }
+        $git->commit('Base');
+        $git->run(['checkout','-b','incoming']);
+        file_put_contents($base.'/work/content.txt', "remote\n");
+        file_put_contents($base.'/work/deleted-locally.txt', "remote\n");
+        file_put_contents($base.'/work/binary.dat', "remote\0binary");
+        unlink($base.'/work/deleted-remotely.txt');
+        file_put_contents($base.'/work/remote-only.txt','keep remote');
+        $git->commit('Remote changes');
+        $git->run(['checkout','main']);
+        file_put_contents($base.'/work/content.txt', "ours\n");
+        file_put_contents($base.'/work/deleted-remotely.txt', "ours\n");
+        file_put_contents($base.'/work/binary.dat', "ours\0binary");
+        unlink($base.'/work/deleted-locally.txt');
+        $git->commit('Our changes');
+        $git->mergeOurs('incoming');
+        self::assertSame("ours\n",file_get_contents($base.'/work/content.txt'));
+        self::assertSame("ours\n",file_get_contents($base.'/work/deleted-remotely.txt'));
+        self::assertSame("ours\0binary",file_get_contents($base.'/work/binary.dat'));
+        self::assertFileDoesNotExist($base.'/work/deleted-locally.txt');
+        self::assertSame('keep remote',file_get_contents($base.'/work/remote-only.txt'));
+        self::assertSame('',$git->run(['status','--porcelain']));
+        self::assertCount(3,explode(' ',trim($git->run(['rev-list','--parents','-n','1','HEAD']))));
+    }
     public function testGitDiagnosticsBecomeSafeActionableFaults(): void
     {
         $base=sys_get_temp_dir().'/micx-errors-'.bin2hex(random_bytes(8)); mkdir($base); mkdir($base.'/work');

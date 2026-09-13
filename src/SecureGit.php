@@ -34,7 +34,7 @@ final class SecureGit extends GitRepository
                 if (strlen($out)>$maxBytes || $errSize>1048576) throw new Fault('TOO_LARGE', 'Git output limit exceeded');
                 $status = proc_get_status($p);
                 if (!$status['running']) { $exit = $status['exitcode']; break; }
-                if (microtime(true)>$end) throw new Fault('OUTCOME_UNKNOWN', 'Git timed out; inspect workspace before another write');
+                if (microtime(true)>$end) throw new Fault('TIMEOUT', 'Git timed out; inspect workspace and remote before another write');
                 usleep(10000);
             } while (true);
             $out .= stream_get_contents($pipes[1]);
@@ -65,12 +65,13 @@ final class SecureGit extends GitRepository
         }
         return $out;
     }
-    public function initialize(string $branch): void
+    public function initialize(string $branch, bool $empty = false): void
     {
         $this->run(['init', '--bare', $this->gitDir]);
         $this->run(['config', 'core.bare', 'false']);
         $this->run(['config', 'core.worktree', $this->work]);
         $this->run(['remote', 'add', 'origin', $this->origin]);
+        if ($empty) { $this->run(['symbolic-ref', 'HEAD', 'refs/heads/'.$branch]); return; }
         $this->run(['fetch', '--no-tags', 'origin', '+refs/heads/'.$branch.':refs/remotes/origin/'.$branch]);
         $this->run(['checkout', '-b', $branch, 'refs/remotes/origin/'.$branch]);
     }
@@ -84,7 +85,37 @@ final class SecureGit extends GitRepository
     {
         $branch = trim($this->run(['symbolic-ref', '--short', 'HEAD']));
         $this->run(['fetch', '--no-tags', 'origin', '+refs/heads/'.$branch.':refs/remotes/origin/'.$branch]);
-        $this->run(['merge', '--ff-only', 'refs/remotes/origin/'.$branch]);
+        $this->mergeOurs('refs/remotes/origin/'.$branch);
+    }
+    /** Merge remote changes, preferring this workspace at conflicting paths. */
+    public function mergeOurs(string $source): void
+    {
+        try {
+            try { $this->run(['merge', '--no-edit', '--no-gpg-sign', '-X', 'ours', $source]); }
+            catch (Fault $e) {
+                if ($e->kind !== 'GIT_FAILED') throw $e;
+                $unmerged = $this->run(['ls-files', '--unmerged', '-z']);
+                if ($unmerged === '') throw $e;
+                $paths = [];
+                foreach (explode("\0", rtrim($unmerged, "\0")) as $entry) {
+                    [$header, $path] = explode("\t", $entry, 2);
+                    Storage::relative($path);
+                    $paths[$path] = ($paths[$path] ?? false) || str_ends_with($header, ' 2');
+                }
+                // -X ours handles content/binary conflicts. For delete/modify conflicts,
+                // stage 2 is our side; absence there means our deletion wins.
+                foreach ($paths as $path => $oursExists) {
+                    if ($oursExists) {
+                        $this->run(['checkout', '--ours', '--', $path]);
+                        $this->run(['add', '--', $path]);
+                    } else $this->run(['rm', '-f', '--', $path]);
+                }
+                $this->run(['commit', '--no-edit', '--no-gpg-sign']);
+            }
+        } catch (Fault $e) {
+            try { $this->run(['merge', '--abort']); } catch (Fault) {}
+            throw new Fault('MERGE_FAILED', 'Merge could not be completed; inspect workspace status', ['cause'=>['code'=>$e->kind,'message'=>$e->getMessage()]]);
+        }
     }
     public function push() { $this->run(['push', 'origin', 'HEAD:refs/heads/'.trim($this->run(['symbolic-ref', '--short', 'HEAD']))]); }
     public function commit(string $message)
@@ -101,7 +132,12 @@ final class SecureGit extends GitRepository
         return $changes;
     }
     public function saveSavepoint() { file_put_contents($this->gitDir.'/micx_savepoint',$this->getRev(),LOCK_EX); }
-    public function getRev(): string { return trim($this->run(['rev-parse', '--verify', 'HEAD'])); }
+    public function getRev(): string
+    {
+        // A newly created repository has an unborn branch and no commit yet.
+        $branch = trim($this->run(['symbolic-ref', '--short', 'HEAD']));
+        return trim($this->run(['for-each-ref', '--format=%(objectname)', 'refs/heads/'.$branch]));
+    }
     public function exists() { return is_file($this->gitDir.'/HEAD'); }
     public function getLocalRepoPath(): string { return $this->work; }
 }

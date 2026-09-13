@@ -14,7 +14,7 @@ final class Service
     }
     public function execute(string $method, array $params): array
     {
-        if ($method === 'checkout') return $this->checkout($params);
+        if ($method === 'checkout' || $method === 'create') return $this->checkout($params, $method === 'create');
         $id = $params['workspace'] ?? '';
         if (!is_string($id)) throw new Fault('INVALID_REQUEST', 'workspace must be a string');
         $file = $this->storage->metadata($id);
@@ -25,8 +25,8 @@ final class Service
             $this->storage->path($meta['path'], '', true);
             $git = $this->git($meta);
             if (in_array($method, ['pull','push','commit','branch','merge','update'], true)) {
-                if (($params['expectedRevision'] ?? null) !== $git->getRev()) throw new Fault('CONFLICT', 'Revision changed; inspect and retry', ['revision'=>$git->getRev()]);
-                if (($params['expectedGeneration'] ?? null) !== $meta['generation']) throw new Fault('CONFLICT', 'Workspace changed', ['generation'=>$meta['generation']]);
+                if (array_key_exists('expectedRevision', $params) && $params['expectedRevision'] !== $git->getRev()) throw new Fault('CONFLICT', 'Revision changed; inspect and retry', ['revision'=>$git->getRev()]);
+                if (array_key_exists('expectedGeneration', $params) && $params['expectedGeneration'] !== $meta['generation']) throw new Fault('CONFLICT', 'Workspace changed', ['generation'=>$meta['generation']]);
                 // Persist before Git/filesystem writes, including partially failed operations.
                 ++$meta['generation']; $this->storage->save($file, $meta);
                 $this->scan($meta['path']);
@@ -36,7 +36,7 @@ final class Service
                 case 'pull':
                     $this->clean($git); $git->pull(); break;
                 case 'commit':
-                    $message = $params['message'] ?? null;
+                    $message = $params['message'] ?? 'Update workspace';
                     if (!is_string($message) || trim($message)==='' || strlen($message)>8192 || str_contains($message, "\0")) throw new Fault('INVALID_REQUEST', 'Invalid commit message');
                     $git->commit($message);
                     if (($params['push'] ?? false) === true) {
@@ -58,11 +58,7 @@ final class Service
                     $this->clean($git);
                     $source = Storage::branch($params['source'] ?? '');
                     $git->run(['fetch', '--no-tags', 'origin', '+refs/heads/'.$source.':refs/remotes/origin/'.$source]);
-                    try { $git->run(['merge', '--no-edit', '--no-gpg-sign', 'refs/remotes/origin/'.$source]); }
-                    catch (Fault $e) {
-                        try { $git->run(['merge', '--abort']); } catch (Fault) {}
-                        throw new Fault('MERGE_FAILED', 'Merge failed; inspect status before continuing');
-                    }
+                    $git->mergeOurs('refs/remotes/origin/'.$source);
                     break;
                 case 'list':
                     $path = $this->storage->path($meta['path'], $params['path'] ?? '', true);
@@ -105,7 +101,7 @@ final class Service
             return $this->result($meta, $git);
         });
     }
-    private function checkout(array $params): array
+    private function checkout(array $params, bool $create = false): array
     {
         $url = Storage::url($params['url'] ?? '');
         $branch = $params['branch'] ?? null;
@@ -114,14 +110,14 @@ final class Service
         if ($directory !== null) Storage::relative($directory);
         $temporary = $params['temporary'] ?? false;
         if (!is_bool($temporary)) throw new Fault('INVALID_REQUEST', 'temporary must be boolean');
-        return $this->storage->lock('registry', function () use ($url, $branch, $directory, $temporary) {
+        return $this->storage->lock('registry', function () use ($url, $branch, $directory, $temporary, $create) {
             // Remote HEAD lookup has no checkout and never exposes credentials.
             $probe = new SecureGit($url, $this->storage->data, $this->storage->state.'/probe.git', $this->key, $this->knownHosts);
-            $default = $probe->defaultBranch();
+            $default = $create ? ($branch ?? 'main') : $probe->defaultBranch();
             $branch ??= $default;
             $id = hash('sha256', json_encode([$url,$branch,$directory,$temporary ? bin2hex(random_bytes(16)) : null], JSON_THROW_ON_ERROR));
             $file = $this->storage->metadata($id);
-            return $this->storage->lock('workspace:'.$id, function () use ($id,$file,$url,$branch,$directory,$temporary,$default) {
+            return $this->storage->lock('workspace:'.$id, function () use ($id,$file,$url,$branch,$directory,$temporary,$default,$create) {
                 if (is_file($file)) {
                     $meta = $this->storage->load($file);
                     $this->storage->path($meta['path'], '', true);
@@ -139,7 +135,7 @@ final class Service
                 if (!mkdir($path, 0770, true)) throw new Fault('IO_ERROR', 'Cannot create working directory');
                 $meta = ['workspace'=>$id,'url'=>$url,'branch'=>$branch,'defaultBranch'=>$default,'path'=>$path,'temporary'=>$temporary,'generation'=>0];
                 $git = $this->git($meta);
-                try { $git->initialize($branch); }
+                try { $git->initialize($branch, $create); }
                 catch (\Throwable $e) { $this->remove($path); $this->remove($this->storage->state.'/workspaces/'.$id.'.git'); throw $e; }
                 $this->storage->save($file, $meta);
                 return $this->result($meta, $git);

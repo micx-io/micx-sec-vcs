@@ -2,6 +2,27 @@
 
 Leichter PHP-CLI-Container für Git-RPC über RabbitMQ. SSH-Key und Git-Metadaten bleiben privat; Anwendungen erhalten Arbeitsverzeichnisse, Dateien oder ZIP-Revisionen. Erste Implementierung, noch keine produktive Betriebsfreigabe.
 
+## Anwendung: Repository, Workspace, Commit und Push
+
+Das [SDK](https://github.com/micx-io/micx-sec-vcs-sdk/pull/1) zeigt den vollständigen Ablauf mit Verbindung und nummerierten Beispielen. Der normale Aufruf benötigt nur den Workspace, keine Revision, Generation oder selbst erzeugte Request-ID:
+
+```php
+$repository = $vcs->checkout('git@github.com:example/project.git', 'main');
+$workspace = $repository['workspace'];
+echo $repository['path']; // Service-Pfad unter /data.
+$vcs->update($workspace, [
+    ['path'=>'hello.txt', 'content'=>base64_encode("Hello\n")],
+]);
+$vcs->commit($workspace);
+$vcs->push($workspace);
+```
+
+Dieser Ausschnitt setzt den verbundenen SDK-Client `$vcs` voraus. `commit` erfasst alle Änderungen; eine Nachricht ist optional. `create(url, directory: 'new-project')` ersetzt `checkout` für ein leeres lokales Repository auf `main`. Es legt kein Projekt beim Git-Anbieter an: Das Remote muss spätestens vor `push` existieren. Vor dem ersten Commit ist `revision` leer. `$vcs->path($workspace)` liefert den Pfad später erneut; zum direkten Dateizugriff muss die Anwendung dasselbe Volume ebenfalls unter `/data` mounten.
+
+`pull($workspace)` integriert Änderungen des aktuellen Remote-Branches. `merge($workspace, 'feature/content')` integriert einen anderen Remote-Branch. Zuerst lokale Änderungen committen. Bei Konflikten gewinnt die eigene Workspace-Seite, einschließlich binärer Dateien und Lösch-/Änderungskonflikten; konfliktfreie Remote-Änderungen bleiben erhalten. Technische Mergeprobleme ergeben weiterhin `MERGE_FAILED`. Push erfolgt ohne Force und übergeht weder Branchschutz noch Server-Hooks.
+
+Der SDK-Konstruktor akzeptiert `timeout` in Sekunden (Standard 60, > 0 bis 300). Nach Ablauf kommt `OperationTimeoutException` mit vollständigem Request für eine bewusste Wiederaufnahme. Das beendet die Wartezeit, bestätigt aber keinen Remote-Abbruch. Einzelne Git-Prozesse haben zusätzlich ein serviceinternes Laufzeitlimit von 45 Sekunden.
+
 ## Start
 
 Voraussetzungen: Docker Compose, ein passender SSH-Key und unabhängig geprüfte SSH-Hostschlüssel. Beide Dateien werden außerhalb des Repositories vorbereitet:
@@ -49,7 +70,7 @@ PHP 8.3+, YAML-Erweiterung, Git. Die CI prüft PHP-Syntax, PHPUnit und Docker-Bu
 
 ## Fehler, Parallelität und Broker-Ausfall
 
-Jeder gültige RPC-Request erhält entweder ein Ergebnis oder `error.code`, `error.message` und `error.details`. Das SDK wirft daraus `RpcException`; die Meldung ist über `getMessage()` verfügbar. Git-Diagnosen werden lokal klassifiziert: Rohes stderr, Befehlszeilen und Secrets werden nicht an Clients weitergegeben. Nicht erkannte Git-Fehler bleiben `GIT_FAILED`.
+Jeder gültige RPC-Request erhält entweder ein Ergebnis oder `error.code`, `error.message` und `error.details`. Das SDK wirft daraus `RpcException` (bei `TIMEOUT` die Unterklasse `OperationTimeoutException`); die Meldung ist über `getMessage()` verfügbar. Git-Diagnosen werden lokal klassifiziert: Rohes stderr, Befehlszeilen und Secrets werden nicht an Clients weitergegeben. Nicht erkannte Git-Fehler bleiben `GIT_FAILED`.
 
 | Fehlercode | Bedeutung / nächste Aktion |
 |---|---|
@@ -64,6 +85,7 @@ Jeder gültige RPC-Request erhält entweder ein Ergebnis oder `error.code`, `err
 | `CONFLICT`, `DIRTY_WORKTREE`, `MERGE_FAILED` | Veralteter Zustand, uncommittete Änderungen oder Mergeproblem; Status abgleichen |
 | `BUSY` | Sperre nach fünf Sekunden nicht verfügbar; Operation wurde nicht ausgeführt |
 | `IO_ERROR` | Journal, Rechte, voller Datenträger oder anderes Storageproblem; bei Schreiboperationen sind Teilergebnisse möglich |
+| `TIMEOUT` | Warte- oder Git-Laufzeitlimit erreicht; Teilergebnisse sind möglich, Workspace und Remote prüfen |
 | `OUTCOME_UNKNOWN` | Ausführung oder Speicherung des Ergebnisses unterbrochen; Zustand prüfen, niemals blind mit neuer ID schreiben |
 | `INVALID_REQUEST`, `UNKNOWN_METHOD`, `INVALID_REPOSITORY`, `INVALID_BRANCH`, `INVALID_PATH` | Aufruf oder Parameter korrigieren |
 | `NOT_FOUND`, `DIRECTORY_EXISTS`, `TOO_LARGE`, `ID_REUSED` | Workspace/Datei fehlt, Ziel belegt, Limit überschritten oder ID für andere Parameter verwendet |
@@ -87,7 +109,7 @@ Ein bereits laufender Git-Befehl kann vor Erkennung des Brokerfehlers fertig wer
 
 SIGTERM wird vom Supervisor an den Worker weitergereicht; dieser nimmt keine weitere Arbeit an, beendet den laufenden Request und schließt die Verbindung. Während Backoff unterbricht SIGTERM das Warten sofort. Überschreitet die Arbeit die Compose-Stopfrist von 60 Sekunden, kann Docker sie hart abbrechen; dann gelten Journal und `OUTCOME_UNKNOWN`.
 
-Ein verlorenes Reply bzw. ein Client-Timeout bricht Git nicht ab. Das SDK verbindet sich nicht selbst neu: Die Anwendung erstellt eine neue AMQP-Verbindung und wiederholt nur dieselbe ID mit identischen Parametern. Kanalaufbaufehler melden `UNAVAILABLE`; ein Verbindungsabbruch ab Publish-Beginn meldet konservativ `OUTCOME_UNKNOWN`. Verbindungsaufbau außerhalb des SDK kann die ursprüngliche AMQP-Exception werfen. Eine vorhandene Queue ohne aktive Worker führt zum Timeout. Broker-Downtime kann daher länger dauern als der einzelne RPC-Timeout.
+Ein verlorenes Reply bzw. ein Client-Timeout bricht Git nicht ab. Das SDK verbindet sich nicht selbst neu: Die Anwendung prüft beziehungsweise erneuert die AMQP-Verbindung und wiederholt nur dieselbe ID mit identischen Parametern; bei `OperationTimeoutException` stehen diese in `$e->request`. Kanalaufbaufehler melden `UNAVAILABLE`; ein Verbindungsabbruch ab Publish-Beginn meldet konservativ `OUTCOME_UNKNOWN`. Verbindungsaufbau außerhalb des SDK kann die ursprüngliche AMQP-Exception werfen. Eine vorhandene Queue ohne aktive Worker führt zum Timeout. Broker-Downtime kann daher länger dauern als der einzelne RPC-Timeout.
 
 Die Tests decken Fehlerklassifikation, parallele Prozesse mit Workspace-/Request-Sperren und Journalfehler ab. Die CI prüft zusätzlich Start ohne Broker, Broker-Unterbrechung und Wiederaufnahme mit zwei Workern. Ein echter Broker-Neustart mitten in einem Remote-Push und Storage-Ausfälle auf dem vorgesehenen Produktionsvolume sind noch nicht end-to-end validiert.
 

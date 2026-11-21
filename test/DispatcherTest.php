@@ -4,6 +4,36 @@ use Micx\SecVcs\{Storage,Dispatcher};
 use PHPUnit\Framework\TestCase;
 final class DispatcherTest extends TestCase
 {
+    public function testPingReportsMissingSshWithoutStartingRepositoryWork(): void
+    {
+        $base = sys_get_temp_dir() . '/micx-ping-' . bin2hex(random_bytes(8));
+        $storage = new Storage($base . '/data', $base . '/state');
+        $service = new \Micx\SecVcs\Service($storage, $base . '/key', $base . '/known_hosts');
+        $dispatcher = new Dispatcher($storage, $service->execute(...));
+
+        $reply = $dispatcher->handle(['version' => 1, 'id' => 'ping-no-key', 'method' => 'ping', 'params' => []]);
+        self::assertTrue($reply['ok']);
+        self::assertTrue($reply['result']['pong']);
+        self::assertFalse($reply['result']['ready']);
+        self::assertSame(['SSH_KEY_MISSING', 'KNOWN_HOSTS_MISSING'], array_column($reply['result']['errors'], 'code'));
+
+        // Ein erfolgreicher RPC-Ping erlaubt noch keine Remote-Aktion ohne Key.
+        $checkout = $dispatcher->handle([
+            'version' => 1,
+            'id' => 'checkout-no-key',
+            'method' => 'checkout',
+            'params' => ['url' => 'git@example.test:demo/site.git'],
+        ]);
+        self::assertFalse($checkout['ok']);
+        self::assertSame('SSH_KEY_MISSING', $checkout['error']['code']);
+        self::assertSame([], glob($base . '/data/*'));
+        self::assertSame([], glob($base . '/state/workspaces/*'));
+
+        // Vorhandene Konfigurationsdateien bestätigen noch keine Remote-Anmeldung.
+        file_put_contents($base . '/key', 'test-key-content');
+        file_put_contents($base . '/known_hosts', 'test-host-content');
+        self::assertSame(['pong' => true, 'ready' => true, 'errors' => []], $service->execute('ping', []));
+    }
     public function testDuplicateWriteRunsOnceAndIdCannotBeReused(): void
     {
         $base=sys_get_temp_dir().'/micx-'.bin2hex(random_bytes(8));

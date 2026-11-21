@@ -12,8 +12,26 @@ final class Service
     {
         return $meta + ['revision'=>$git->getRev()];
     }
+    /**
+     * Executes an RPC action or checks local SSH configuration with ping.
+     *
+     * Ping requires no repository and starts no Git process. Its ready flag only
+     * describes readable, non-empty SSH configuration, not remote authentication.
+     * Local workspace actions remain available without SSH configuration.
+     *
+     * @param string $method RPC method, for example 'ping' or 'checkout'.
+     * @param array $params Method parameters; ping uses an empty array.
+     * @return array Result returned inside the RPC response.
+     * @throws Fault When validation, SSH preflight or the operation fails.
+     * @example $status = $service->execute('ping', []);
+     * @see Dispatcher::handle()
+     */
     public function execute(string $method, array $params): array
     {
+        if ($method === 'ping') {
+            $errors = $this->sshErrors();
+            return ['pong' => true, 'ready' => $errors === [], 'errors' => $errors];
+        }
         if ($method === 'checkout' || $method === 'create') return $this->checkout($params, $method === 'create');
         $id = $params['workspace'] ?? '';
         if (!is_string($id)) throw new Fault('INVALID_REQUEST', 'workspace must be a string');
@@ -23,6 +41,13 @@ final class Service
             $meta = $this->storage->load($file);
             if ($meta['released'] ?? false) throw new Fault('NOT_FOUND', 'Workspace was released');
             $this->storage->path($meta['path'], '', true);
+            // Vor Remote-Aktionen prüfen, bevor lokale Änderungen begonnen werden.
+            if (
+                in_array($method, ['pull', 'push', 'merge'], true)
+                || ($method === 'commit' && ($params['push'] ?? false) === true)
+            ) {
+                $this->requireSsh();
+            }
             $git = $this->git($meta);
             if (in_array($method, ['pull','push','commit','branch','merge','update'], true)) {
                 if (array_key_exists('expectedRevision', $params) && $params['expectedRevision'] !== $git->getRev()) throw new Fault('CONFLICT', 'Revision changed; inspect and retry', ['revision'=>$git->getRev()]);
@@ -101,6 +126,29 @@ final class Service
             return $this->result($meta, $git);
         });
     }
+    private function sshErrors(): array
+    {
+        $errors = [];
+        foreach ([
+            [$this->key, 'SSH_KEY_MISSING', 'SSH private key file is missing, unreadable or empty'],
+            [$this->knownHosts, 'KNOWN_HOSTS_MISSING', 'SSH known_hosts file is missing, unreadable or empty'],
+        ] as [$path, $code, $message]) {
+            clearstatcache(true, $path);
+            if (!is_file($path) || !is_readable($path) || filesize($path) <= 0) {
+                $errors[] = ['code' => $code, 'message' => $message];
+            }
+        }
+        return $errors;
+    }
+
+    private function requireSsh(): void
+    {
+        $errors = $this->sshErrors();
+        if ($errors !== []) {
+            throw new Fault($errors[0]['code'], $errors[0]['message']);
+        }
+    }
+
     private function checkout(array $params, bool $create = false): array
     {
         $url = Storage::url($params['url'] ?? '');
@@ -110,6 +158,9 @@ final class Service
         if ($directory !== null) Storage::relative($directory);
         $temporary = $params['temporary'] ?? false;
         if (!is_bool($temporary)) throw new Fault('INVALID_REQUEST', 'temporary must be boolean');
+        if (!$create) {
+            $this->requireSsh();
+        }
         return $this->storage->lock('registry', function () use ($url, $branch, $directory, $temporary, $create) {
             // Remote HEAD lookup has no checkout and never exposes credentials.
             $probe = new SecureGit($url, $this->storage->data, $this->storage->state.'/probe.git', $this->key, $this->knownHosts);

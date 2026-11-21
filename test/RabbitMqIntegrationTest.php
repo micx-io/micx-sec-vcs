@@ -5,6 +5,41 @@ use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Message\AMQPMessage;
 final class RabbitMqIntegrationTest extends TestCase
 {
+    public function testPingReportsMissingKeyBeforeRepositoryIsConfigured(): void
+    {
+        if (!getenv('AMQP_TEST_HOST')) {
+            self::markTestSkipped('Set AMQP_TEST_HOST and start src/worker.php without SSH credentials');
+        }
+        $connection = new AMQPStreamConnection(getenv('AMQP_TEST_HOST'), 5672, 'guest', 'guest');
+        $channel = $connection->channel();
+        try {
+            [$reply] = $channel->queue_declare('micx.vcs.reply.' . bin2hex(random_bytes(16)), false, false, true, true);
+            $id = bin2hex(random_bytes(16));
+            $response = null;
+            $channel->basic_consume($reply, '', false, true, false, false, function (AMQPMessage $message) use (&$response, $id): void {
+                self::assertSame($id, $message->get('correlation_id'));
+                $response = json_decode($message->getBody(), true, flags: JSON_THROW_ON_ERROR);
+            });
+            // Die korrelierte Antwort belegt den vollständigen Broker-/Worker-Rundlauf.
+            $channel->basic_publish(new AMQPMessage(
+                json_encode(['version' => 1, 'id' => $id, 'method' => 'ping', 'params' => []], JSON_THROW_ON_ERROR),
+                ['correlation_id' => $id, 'reply_to' => $reply],
+            ), 'micx.vcs.v1', 'rpc.request');
+            $deadline = microtime(true) + 5;
+            while ($response === null) {
+                self::assertGreaterThan(0, $remaining = $deadline - microtime(true));
+                $channel->wait(null, false, $remaining);
+            }
+            self::assertSame($id, $response['id']);
+            self::assertTrue($response['ok']);
+            self::assertTrue($response['result']['pong']);
+            self::assertFalse($response['result']['ready']);
+            self::assertContains('SSH_KEY_MISSING', array_column($response['result']['errors'], 'code'));
+        } finally {
+            $channel->close();
+            $connection->close();
+        }
+    }
     public function testWorkerReturnsAndReplaysValidationError(): void
     {
         if (!getenv('AMQP_TEST_HOST')) self::markTestSkipped('Set AMQP_TEST_HOST and start src/worker.php');

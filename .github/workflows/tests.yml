@@ -1,16 +1,66 @@
 name: tests
-
-on: [push]
-
+on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
-  build:
-
+  php:
     runs-on: ubuntu-latest
-    
+    services:
+      rabbitmq:
+        image: rabbitmq:4-alpine
+        ports: [5672:5672]
+        options: --health-cmd "rabbitmq-diagnostics -q ping" --health-interval 5s --health-timeout 5s --health-retries 20
     steps:
-    - uses: actions/checkout@v1
-    - name: Download kickstart
-      run: curl -o ./kickstart.sh 'https://raw.githubusercontent.com/nfra-project/nfra-kickstart/master/dist/kickstart.sh' && chmod +x ./kickstart.sh
-    - name: UnitTests
-      run: ./kickstart.sh :test
-  
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: yaml, mbstring, bcmath, sockets, pcntl
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - run: find src test -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: RPC integration and unit tests
+        env:
+          AMQP_TEST_HOST: 127.0.0.1
+          AMQP_HOST: 127.0.0.1
+          AMQP_USER: guest
+          AMQP_PASSWORD: guest
+        run: |
+          export VCS_DATA_DIR="$RUNNER_TEMP/micx-data"
+          export VCS_STATE_DIR="$RUNNER_TEMP/micx-state"
+          broker_id='${{ job.services.rabbitmq.id }}'
+          docker exec "$broker_id" rabbitmqctl stop_app
+          sh docker/supervisor.sh php src/worker.php >> "$RUNNER_TEMP/worker.log" 2>&1 &
+          supervisor_pid=$!
+          second_pid=''
+          trap 'kill "$supervisor_pid" ${second_pid:-} 2>/dev/null || true; cat "$RUNNER_TEMP/worker.log"' EXIT
+          wait_log() {
+            for i in $(seq 1 300); do
+              if [ "$(grep -c "$1" "$RUNNER_TEMP/worker.log" || true)" -ge "$2" ]; then return; fi
+              sleep 0.2
+            done
+            cat "$RUNNER_TEMP/worker.log"
+            return 1
+          }
+          wait_log 'retry in' 2
+          kill -0 "$supervisor_pid"
+          docker exec "$broker_id" rabbitmqctl start_app
+          wait_log 'worker ready' 1
+          # A second worker uses the same queue, storage and request locks.
+          sh docker/supervisor.sh php src/worker.php >> "$RUNNER_TEMP/worker.log" 2>&1 &
+          second_pid=$!
+          wait_log 'worker ready' 2
+          composer test
+          retries=$(grep -c 'retry in' "$RUNNER_TEMP/worker.log" || true)
+          docker exec "$broker_id" rabbitmqctl stop_app
+          wait_log 'retry in' "$((retries + 1))"
+          kill -0 "$supervisor_pid"
+          kill -0 "$second_pid"
+          ready=$(grep -c 'worker ready' "$RUNNER_TEMP/worker.log" || true)
+          docker exec "$broker_id" rabbitmqctl start_app
+          wait_log 'worker ready' "$((ready + 2))"
+          composer test -- --filter RabbitMqIntegrationTest
+          kill "$supervisor_pid" "$second_pid"
+          wait "$supervisor_pid"
+          wait "$second_pid"
+      - run: docker build -t micx-sec-vcs:test .

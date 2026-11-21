@@ -1,0 +1,53 @@
+services:
+  rabbitmq:
+    image: rabbitmq:4-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: micx
+      RABBITMQ_DEFAULT_PASS: micx
+    volumes:
+      - queue:/var/lib/rabbitmq
+    networks: [rpc]
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+  vcs:
+    build: .
+    environment:
+      AMQP_HOST: rabbitmq
+      VCS_SSH_KEY_FILE: /run/secrets/ssh_key
+      VCS_KNOWN_HOSTS_FILE: /run/secrets/known_hosts
+    secrets: [ssh_key, known_hosts]
+    volumes:
+      - data:/data
+      - state:/state
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /run/micx:size=1m,uid=10001,gid=10001,mode=0700
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    networks: [rpc, egress]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 60s
+secrets:
+  ssh_key:
+    file: ./secrets/id_ed25519
+  known_hosts:
+    file: ./secrets/known_hosts
+volumes:
+  data:
+  state:
+  queue:
+networks:
+  rpc:
+    internal: true
+  egress: {}

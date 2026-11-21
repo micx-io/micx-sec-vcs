@@ -123,6 +123,87 @@ final class SecureGit extends GitRepository
         $this->run(['add', '--all', '--', '.']);
         if ($this->run(['diff', '--cached', '--name-only']) !== '') $this->run(['commit', '--no-gpg-sign', '-m', $message]);
     }
+    /**
+     * Status für die öffentliche Repository-API: uncommittete Dateien oder
+     * lokale Commits, die noch nicht zum Remote-Branch gepusht wurden.
+     *
+     * @return bool true bei lokalen Änderungen oder unveröffentlichten Commits
+     * @see self::commit()
+     */
+    public function hasUnpushedChanges(): bool
+    {
+        if ($this->run(['status', '--porcelain=v1', '-z']) !== '') {
+            return true;
+        }
+
+        // Unborn Branches enthalten noch keine lokalen Commits.
+        if ($this->getRev() === '') {
+            return false;
+        }
+
+        $branch = trim($this->run(['symbolic-ref', '--short', 'HEAD']));
+        $remoteRef = 'refs/remotes/origin/' . $branch;
+        $remoteExists = $this->run(['for-each-ref', '--format=%(objectname)', $remoteRef]) !== '';
+        $args = ['rev-list', '--count', 'HEAD'];
+        if ($remoteExists) {
+            $args[] = '--not';
+            $args[] = $remoteRef;
+        }
+
+        return (int) trim($this->run($args)) > 0;
+    }
+
+    /**
+     * Liest höchstens 50 Commits als SDK-kompatible, strukturierte Metadaten.
+     *
+     * @return list<array{id:string,message:string,timestamp:string,branch:string}>
+     * @see self::getBranches()
+     */
+    public function getHistory(string $branch, ?string $ref = null): array
+    {
+        $ref ??= 'HEAD';
+        if ($this->getRev() === '') {
+            return [];
+        }
+
+        $raw = $this->run(['log', '-z', '-n', '50', '--format=%H%x00%s%x00%cI', $ref]);
+        $fields = explode("\0", rtrim($raw, "\0"));
+        $entries = [];
+        for ($i = 0; $i + 2 < count($fields); $i += 3) {
+            $entries[] = [
+                'id' => $fields[$i],
+                'message' => $fields[$i + 1],
+                'timestamp' => $fields[$i + 2],
+                'branch' => $branch,
+            ];
+        }
+
+        return $entries;
+    }
+
+    /**
+     * Gibt lokale Branches mit ihrem letzten Commit zurück.
+     *
+     * @return list<array{name:string,latestCommit:array|null}>
+     * @see self::getHistory()
+     */
+    public function getBranches(): array
+    {
+        $names = trim($this->run(['for-each-ref', '--format=%(refname:short)', 'refs/heads']));
+        if ($names === '') {
+            return [];
+        }
+
+        $branches = [];
+        foreach (explode("\n", $names) as $name) {
+            $branch = Storage::branch($name);
+            $history = $this->getHistory($branch, 'refs/heads/' . $branch);
+            $branches[] = ['name' => $branch, 'latestCommit' => $history[0] ?? null];
+        }
+
+        return $branches;
+    }
+
     public function getChangedFiles(): array
     {
         $base = is_file($this->gitDir.'/micx_savepoint') ? trim(file_get_contents($this->gitDir.'/micx_savepoint')) : 'HEAD';

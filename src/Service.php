@@ -57,7 +57,15 @@ final class Service
                 $this->scan($meta['path']);
             }
             switch ($method) {
-                case 'status': return $this->result($meta, $git) + ['status'=>$git->run(['status', '--porcelain=v1', '-z'])];
+                case 'status':
+                    return $this->result($meta, $git) + [
+                        'status' => $git->run(['status', '--porcelain=v1', '-z']),
+                        'hasUnpushedChanges' => $git->hasUnpushedChanges(),
+                    ];
+                case 'log':
+                    return $this->result($meta, $git) + ['entries' => $git->getHistory($meta['branch'])];
+                case 'branches':
+                    return $this->result($meta, $git) + ['branches' => $git->getBranches()];
                 case 'pull':
                     $this->clean($git); $git->pull(); break;
                 case 'commit':

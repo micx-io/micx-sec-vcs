@@ -52,10 +52,26 @@ final class GitIntegrationTest extends TestCase
         self::assertSame('main',$repo['branch']);
         self::assertFileDoesNotExist($repo['path'].'/.git');
         $args=['workspace'=>$repo['workspace']];
+        self::assertFalse($service->execute('status', $args)['hasUnpushedChanges']);
+        self::assertSame([], $service->execute('log', $args)['entries']);
+        self::assertSame([], $service->execute('branches', $args)['branches']);
+
         $service->execute('update',$args+['files'=>[['path'=>'hello.txt','content'=>base64_encode('Hello')]]]);
+        self::assertTrue($service->execute('status', $args)['hasUnpushedChanges']);
         $commit=$service->execute('commit',$args);
         self::assertMatchesRegularExpression('/^[a-f0-9]{40,64}$/',$commit['revision']);
         self::assertSame($commit['revision'],$service->execute('commit',$args)['revision']);
+
+        // Auch saubere lokale Commits sind bis zum Push unveröffentlicht.
+        self::assertTrue($service->execute('status', $args)['hasUnpushedChanges']);
+        $history = $service->execute('log', $args)['entries'];
+        self::assertSame($commit['revision'], $history[0]['id']);
+        self::assertSame('Update workspace', $history[0]['message']);
+        self::assertSame('main', $history[0]['branch']);
+        self::assertNotEmpty($history[0]['timestamp']);
+        $branches = $service->execute('branches', $args)['branches'];
+        self::assertSame('main', $branches[0]['name']);
+        self::assertSame($history[0], $branches[0]['latestCommit']);
         self::assertSame($repo['workspace'],$service->execute('create',['url'=>'git@example.test:new.git','directory'=>'project'])['workspace']);
     }
     public function testMergeKeepsOursAndAcceptsNonConflictingRemoteChanges(): void

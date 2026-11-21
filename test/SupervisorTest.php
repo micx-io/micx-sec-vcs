@@ -3,7 +3,7 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 final class SupervisorTest extends TestCase
 {
-    public function testRetryBackoffIsCappedAndSupervisorStopsOnSignal(): void
+    public function testRetryWaitsThirtySecondsAndSupervisorStopsOnSignal(): void
     {
         $base=sys_get_temp_dir().'/micx-supervisor-'.bin2hex(random_bytes(8)); mkdir($base);
         // Replace waiting only; observe the real supervisor's scheduled delays and launches.
@@ -19,7 +19,7 @@ final class SupervisorTest extends TestCase
                 if (count($delays)>=8) break;
                 usleep(10000);
             } while (microtime(true)<$deadline);
-            self::assertSame(['1','2','4','8','16','30','30','30'],$delays);
+            self::assertSame(array_fill(0, 8, '30'), $delays);
             self::assertTrue(proc_get_status($p)['running']);
             self::assertStringContainsString('retry in 30s',file_get_contents($base.'/err'));
         } finally {
@@ -29,7 +29,7 @@ final class SupervisorTest extends TestCase
             if ($status['running']) proc_terminate($p,SIGKILL);
             proc_close($p);
         }
-        self::assertFalse($status['running'],'Supervisor must stop promptly during backoff');
+        self::assertFalse($status['running'],'Supervisor must stop promptly during the retry delay');
         self::assertStringContainsString('stopped by signal',file_get_contents($base.'/err'));
     }
 }

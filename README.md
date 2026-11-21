@@ -2,6 +2,28 @@
 
 Leichter PHP-CLI-Container für Git-RPC über RabbitMQ. SSH-Key und Git-Metadaten bleiben privat; Anwendungen erhalten Arbeitsverzeichnisse, Dateien oder ZIP-Revisionen. Erste Implementierung, noch keine produktive Betriebsfreigabe.
 
+## Ping ohne SSH-Key oder Repository
+
+Der Standard-Entrypoint startet den Worker auch ohne SSH-Konfiguration. Der
+erste Test ist ein echter RabbitMQ-RPC-Rundlauf mit dem verbundenen SDK-Client:
+
+```php
+$status = $vcs->ping();
+echo json_encode($status, JSON_PRETTY_PRINT);
+```
+
+Ohne Credentials enthält das Ergebnis `pong: true`, `ready: false` und
+`errors` mit `SSH_KEY_MISSING` sowie gegebenenfalls `KNOWN_HOSTS_MISSING`.
+Das bestätigt die Verbindung über Broker und Worker; es wird kein Git-Prozess
+gestartet und kein Repository benötigt. `ready: true` bestätigt nur vorhandene,
+lesbare und nicht leere SSH-Konfigurationsdateien, keine erfolgreiche Anmeldung
+bei einem Git-Server. Für einen neuen Konfigurationsstand einen neuen Ping senden.
+
+Vor Remote-Aktionen prüfen `checkout`, `pull`, `push`, `merge` und
+`commit(push: true)` dieselben Voraussetzungen und liefern bei fehlenden Dateien
+einen ausdrücklichen Fehler. Lokale Workspace-Aktionen bleiben nutzbar;
+fehlende Credentials führen niemals zu einem simulierten erfolgreichen Push.
+
 ## Anwendung: Repository, Workspace, Commit und Push
 
 Das [SDK](https://github.com/micx-io/micx-sec-vcs-sdk/pull/1) zeigt den vollständigen Ablauf mit Verbindung und nummerierten Beispielen. Der normale Aufruf benötigt nur den Workspace, keine Revision, Generation oder selbst erzeugte Request-ID:
@@ -25,7 +47,11 @@ Der SDK-Konstruktor akzeptiert `timeout` in Sekunden (Standard 60, > 0 bis 300).
 
 ## Start
 
-Voraussetzungen: Docker Compose, ein passender SSH-Key und unabhängig geprüfte SSH-Hostschlüssel. Beide Dateien werden außerhalb des Repositories vorbereitet:
+Voraussetzung für einen Ping ist nur ein erreichbarer RabbitMQ-Broker. Der
+Standard-Entrypoint bleibt aktiv, auch wenn keine SSH-Dateien angegeben sind.
+Für echte Git-Remote-Aktionen zusätzlich einen passenden SSH-Key und unabhängig
+geprüfte Hostschlüssel konfigurieren. Das folgende Compose-Beispiel bindet
+diese Dateien ein und setzt sie deshalb außerhalb des Repositories voraus:
 
 ```sh
 mkdir -p secrets
@@ -74,6 +100,7 @@ Jeder gültige RPC-Request erhält entweder ein Ergebnis oder `error.code`, `err
 
 | Fehlercode | Bedeutung / nächste Aktion |
 |---|---|
+| `SSH_KEY_MISSING`, `KNOWN_HOSTS_MISSING` | SSH-Konfigurationsdatei fehlt, ist nicht lesbar oder leer; Ping bleibt verfügbar |
 | `SSH_KEY_INVALID` | Key beschädigt, verschlüsselt oder unsichere Dateirechte; Service-Secret prüfen |
 | `SSH_AUTH_FAILED` | SSH-Anmeldung abgelehnt; Key und Repository-Berechtigungen prüfen |
 | `SSH_HOST_KEY_FAILED` | Hostschlüssel fehlt oder stimmt nicht; `known_hosts` unabhängig prüfen |
@@ -94,20 +121,20 @@ Ein Worker verarbeitet durch synchronen Callback und Prefetch 1 genau einen Requ
 
 Gleiche Request-IDs werden zusätzlich gesperrt und über das gemeinsame Journal dedupliziert. Ein gespeichertes Ergebnis wird wiedergegeben; bei einem begonnenen Request ohne Ergebnis folgt `OUTCOME_UNKNOWN`. Ein gespeichertes `BUSY` bleibt bei derselben ID erhalten; nach diesem bestätigten Nicht-Ausführen kann ein neuer Versuch eine neue ID nutzen. Voraussetzung: identische, verlässlich lockfähige `/state`- und `/data`-Volumes für alle Worker. Separate Volumes oder ungeprüftes NFS erfüllen diese Voraussetzung nicht.
 
-**Queue fällt aus:** Ein kleiner Supervisor bleibt als PID 1 aktiv und startet genau einen Worker-Unterprozess. Bei fehlender oder verlorener Broker-Verbindung meldet der Worker eine sichere Fehlerkategorie; der Supervisor protokolliert Exit-Status und nächsten Versuch. Wiederanlaufpausen: **1, 2, 4, 8, 16, 30, 30 … Sekunden**, ohne Abbruch nach einer maximalen Versuchszahl. Nach mindestens 60 Sekunden Prozesslaufzeit wird die Pause auf eine Sekunde zurückgesetzt. Das ist die Wartezeit *zwischen* Versuchen; Verbindungsaufbau und Fehlererkennung dauern zusätzlich. AMQP-Heartbeats (60 Sekunden, Signal-Sender auch während Git-Arbeit) erkennen ausgefallene Verbindungen; ein stiller Netzwerkausfall wird nicht zwingend sofort erkannt. Beispiele:
+**Queue fällt aus:** Ein kleiner Supervisor bleibt als PID 1 aktiv und startet genau einen Worker-Unterprozess. Bei fehlender oder verlorener Broker-Verbindung meldet der Worker eine sichere Fehlerkategorie; der Supervisor protokolliert Exit-Status und nächsten Versuch. Wiederanlaufpause: **immer 30 Sekunden**, auch nach dem ersten Fehler und ohne maximale Versuchszahl. Das ist die Wartezeit *zwischen* Versuchen; Verbindungsaufbau und Fehlererkennung dauern zusätzlich. AMQP-Heartbeats (60 Sekunden, Signal-Sender auch während Git-Arbeit) erkennen ausgefallene Verbindungen; ein stiller Netzwerkausfall wird nicht zwingend sofort erkannt. Beispiele:
 
 ```text
 worker: AMQP_UNAVAILABLE: connection failed or was lost; check broker, DNS and network; supervisor will restart
-supervisor: worker stopped (exit=0); retry in 4s
+supervisor: worker stopped (exit=0); retry in 30s
 supervisor: starting worker
 MICX VCS worker ready
 ```
 
 `docker compose logs -f vcs` zeigt die Diagnose. `AMQP_CONNECTION` verweist auf Anmeldung/VHost, `AMQP_CHANNEL` auf Queue-Konfiguration/Rechte, `WORKER_ERROR` auf Service-/Storagekonfiguration. Es werden keine rohen AMQP-Exceptions oder Zugangsdaten ausgegeben. Auch bei dauerhaft falscher Konfiguration bleibt der Supervisor aktiv; „Container läuft“ bedeutet daher nicht „RPC bereit“. Nach Korrektur ist ggf. ein Container-Neustart zur Übernahme neuer Environment-Variablen nötig.
 
-Ein bereits laufender Git-Befehl kann vor Erkennung des Brokerfehlers fertig werden. Der Worker speichert das Ergebnis vor Reply und Request-Ack. Nicht bestätigte Requests können nach Wiederherstellung erneut zugestellt werden und erhalten dann das gespeicherte Ergebnis. Die persistenten Queue- und Journal-Volumes müssen erhalten bleiben; ein Verlust dieser Daten hebt diese Absicherung auf. Fehlende Secrets werden vor dem Supervisor im Entrypoint geprüft und verhindern weiterhin den Containerstart; Brokerprobleme beenden den Container dagegen nicht. Compose `restart: unless-stopped` bleibt als zusätzliche Absicherung bei Container-/Hostausfällen bestehen.
+Ein bereits laufender Git-Befehl kann vor Erkennung des Brokerfehlers fertig werden. Der Worker speichert das Ergebnis vor Reply und Request-Ack. Nicht bestätigte Requests können nach Wiederherstellung erneut zugestellt werden und erhalten dann das gespeicherte Ergebnis. Die persistenten Queue- und Journal-Volumes müssen erhalten bleiben; ein Verlust dieser Daten hebt diese Absicherung auf. Fehlende SSH-Dateien werden beim Start sicher diagnostiziert; der Worker bleibt für Ping erreichbar. Erst Remote-Git-Aktionen werden mit einem Konfigurationsfehler abgewiesen. Compose `restart: unless-stopped` bleibt als zusätzliche Absicherung bei Container-/Hostausfällen bestehen.
 
-SIGTERM wird vom Supervisor an den Worker weitergereicht; dieser nimmt keine weitere Arbeit an, beendet den laufenden Request und schließt die Verbindung. Während Backoff unterbricht SIGTERM das Warten sofort. Überschreitet die Arbeit die Compose-Stopfrist von 60 Sekunden, kann Docker sie hart abbrechen; dann gelten Journal und `OUTCOME_UNKNOWN`.
+SIGTERM wird vom Supervisor an den Worker weitergereicht; dieser nimmt keine weitere Arbeit an, beendet den laufenden Request und schließt die Verbindung. Während der Wiederanlaufpause unterbricht SIGTERM das Warten sofort. Überschreitet die Arbeit die Compose-Stopfrist von 60 Sekunden, kann Docker sie hart abbrechen; dann gelten Journal und `OUTCOME_UNKNOWN`.
 
 Ein verlorenes Reply bzw. ein Client-Timeout bricht Git nicht ab. Das SDK verbindet sich nicht selbst neu: Die Anwendung prüft beziehungsweise erneuert die AMQP-Verbindung und wiederholt nur dieselbe ID mit identischen Parametern; bei `OperationTimeoutException` stehen diese in `$e->request`. Kanalaufbaufehler melden `UNAVAILABLE`; ein Verbindungsabbruch ab Publish-Beginn meldet konservativ `OUTCOME_UNKNOWN`. Verbindungsaufbau außerhalb des SDK kann die ursprüngliche AMQP-Exception werfen. Eine vorhandene Queue ohne aktive Worker führt zum Timeout. Broker-Downtime kann daher länger dauern als der einzelne RPC-Timeout.
 

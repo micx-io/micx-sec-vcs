@@ -5,15 +5,17 @@ use Micx\SecVcs\{Storage,Service,Dispatcher};
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Message\AMQPMessage;
 use PhpAmqpLib\Wire\AMQPTable;
-// Log a safe reason, never an AMQP password, key, raw exception or stack trace.
-set_exception_handler(static function (\Throwable $e): void {
+// Never log raw connection URIs, credentials, exceptions or stack traces.
+$amqpContext='configuration not parsed';
+$amqpPhase='startup';
+set_exception_handler(static function (\Throwable $e) use (&$amqpContext,&$amqpPhase): void {
     $reason=match (true) {
-        $e instanceof \PhpAmqpLib\Exception\AMQPProtocolChannelException => 'AMQP_CHANNEL: broker rejected channel; check queue settings and permissions',
-        $e instanceof \PhpAmqpLib\Exception\AMQPProtocolException => 'AMQP_CONNECTION: broker rejected connection; check credentials and vhost permissions',
+        $e instanceof \PhpAmqpLib\Exception\AMQPProtocolChannelException => 'AMQP_CHANNEL: broker rejected channel; check exchange/queue declarations and permissions',
+        $e instanceof \PhpAmqpLib\Exception\AMQPProtocolException => 'AMQP_CONNECTION: broker rejected connection; check username, password and vhost permissions',
         $e instanceof \PhpAmqpLib\Exception\AMQPExceptionInterface => 'AMQP_UNAVAILABLE: connection failed or was lost; check broker, DNS and network',
         default => 'WORKER_ERROR: startup, storage or response confirmation failed; check service configuration and volumes',
     };
-    fwrite(STDERR,gmdate('c')." worker: ".$reason."; supervisor will restart\n");
+    fwrite(STDERR,gmdate('c')." worker: ".$reason."; phase=".$amqpPhase."; ".$amqpContext."; supervisor will restart\n");
 });
 $stopping=false;
 pcntl_async_signals(true);
@@ -31,25 +33,46 @@ if ($amq===false || !in_array(strtolower($amq['scheme'] ?? ''), ['rabbitmq','amq
     || isset($amq['query']) || isset($amq['fragment'])) {
     throw new \InvalidArgumentException('Invalid CONF_AMQ_CONNECTION URI');
 }
+$host=$amq['host'];
+$port=$amq['port'] ?? 5672;
+$username=rawurldecode($amq['user']);
+$password=rawurldecode($amq['pass']);
+$vhost=rawurldecode(ltrim($amq['path'] ?? '/', '/')) ?: '/';
+$exchange='micx.vcs.v1';
+$queue='micx.vcs.v1.requests';
+$routingKey='rpc.request';
+// Escape control characters so URI-supplied values cannot forge additional log lines.
+$safeLogValue=static fn (string $value): string => json_encode($value,JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES);
+$amqpContext='host='.$safeLogValue($host).' port='.$port
+    .' vhost='.$safeLogValue($vhost).' user='.$safeLogValue($username)
+    .' password_set='.(($password !== '') ? 'yes' : 'no')
+    .' exchange='.$safeLogValue($exchange).' queue='.$safeLogValue($queue)
+    .' routing_key='.$safeLogValue($routingKey);
+fwrite(STDOUT,gmdate('c')." worker: AMQP connecting; ".$amqpContext."\n");
+$amqpPhase='connect';
 $connection=new AMQPStreamConnection(
-    $amq['host'],
-    $amq['port'] ?? 5672,
-    rawurldecode($amq['user']),
-    rawurldecode($amq['pass']),
-    rawurldecode(ltrim($amq['path'] ?? '/', '/')) ?: '/',
+    $host,$port,$username,$password,$vhost,
     false,'AMQPLAIN',null,'en_US',5,130,null,false,60
 );
+$amqpPhase='channel';
 $heartbeat=new \PhpAmqpLib\Connection\Heartbeat\PCNTLHeartbeatSender($connection);
 $heartbeat->register();
 $channel=$connection->channel();
-$channel->exchange_declare('micx.vcs.v1','topic',false,true,false);
-$channel->queue_declare('micx.vcs.v1.requests',false,true,false,false,false,new AMQPTable(['x-max-length'=>10000,'x-max-length-bytes'=>67108864,'x-overflow'=>'reject-publish']));
-$channel->queue_bind('micx.vcs.v1.requests','micx.vcs.v1','rpc.request');
+$amqpPhase='declare exchange '.$safeLogValue($exchange);
+$channel->exchange_declare($exchange,'topic',false,true,false);
+fwrite(STDOUT,gmdate('c')." worker: AMQP exchange declared; ".$amqpContext."\n");
+$amqpPhase='declare queue '.$safeLogValue($queue);
+$channel->queue_declare($queue,false,true,false,false,false,new AMQPTable(['x-max-length'=>10000,'x-max-length-bytes'=>67108864,'x-overflow'=>'reject-publish']));
+fwrite(STDOUT,gmdate('c')." worker: AMQP queue declared; ".$amqpContext."\n");
+$amqpPhase='bind queue';
+$channel->queue_bind($queue,$exchange,$routingKey);
+fwrite(STDOUT,gmdate('c')." worker: AMQP queue bound; ".$amqpContext."\n");
+$amqpPhase='configure consumer';
 $channel->basic_qos(0,1,false);
 $channel->confirm_select();
 $nacked=false;
 $channel->set_nack_handler(function () use (&$nacked) { $nacked=true; });
-$channel->basic_consume('micx.vcs.v1.requests','',false,false,false,false,function (AMQPMessage $msg) use ($dispatcher,$channel,&$nacked,&$stopping) {
+$channel->basic_consume($queue,'',false,false,false,false,function (AMQPMessage $msg) use ($dispatcher,$channel,&$nacked,&$stopping) {
     try {
     if ($stopping) { $msg->nack(true); return; }
     $reply=$msg->has('reply_to') ? $msg->get('reply_to') : '';
@@ -70,7 +93,8 @@ $channel->basic_consume('micx.vcs.v1.requests','',false,false,false,false,functi
         throw new \PhpAmqpLib\Exception\AMQPRuntimeException('RPC handler timed out',0,$e);
     }
 });
-fwrite(STDOUT,"MICX VCS worker ready\n");
+fwrite(STDOUT,gmdate('c')." worker: MICX VCS worker ready; ".$amqpContext."\n");
+$amqpPhase='consume';
 try {
     while (!$stopping && $channel->is_consuming()) {
         try { $channel->wait(null,false,1); }

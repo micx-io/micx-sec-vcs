@@ -35,7 +35,7 @@ final class DispatcherTest extends TestCase
 
         file_put_contents($base . '/key', 'test-key-content');
         file_put_contents($base . '/known_hosts', 'test-host-content');
-        self::assertSame(['pong' => true, 'ready' => true, 'errors' => []], $service->execute('ping', []));
+        self::assertSame(['pong' => true, 'ready' => true, 'errors' => []], $service->execute('ping', ['url' => 'git@example.test:demo/site.git', 'branch' => 'main', 'directory' => 'demo/site']));
     }
 
     public function testRepeatedRequestRunsAgainWithoutJournal(): void

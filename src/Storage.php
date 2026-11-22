@@ -36,7 +36,8 @@ final class Storage
 
         foreach (explode('/', $path) as $part) {
             if ($part === '' || $part === '.' || $part === '..'
-                || str_starts_with($part, '-') || strcasecmp($part, '.git') === 0) {
+                || str_starts_with($part, '-') || strcasecmp($part, '.git') === 0
+                || $part === '.mix-vcs-locks') {
                 throw new Fault('INVALID_PATH', 'Reserved path component');
             }
         }
@@ -90,6 +91,9 @@ final class Storage
             clearstatcache(true, $cursor);
             if (is_link($cursor)) {
                 throw new Fault('INVALID_PATH', 'Symbolic links are not accessible');
+            }
+            if ($cursor !== $this->data . '/' . $relative && is_file($cursor . '/.git/HEAD')) {
+                throw new Fault('INVALID_PATH', 'Nested repository checkout is not allowed');
             }
             if (file_exists($cursor) && !is_dir($cursor)) {
                 throw new Fault('INVALID_PATH', 'Repository directory is not a directory');

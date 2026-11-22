@@ -6,7 +6,7 @@ namespace Micx\SecVcs;
 
 final class Dispatcher
 {
-    public function __construct(private Storage $storage, private \Closure $execute)
+    public function __construct(private \Closure $execute)
     {
     }
 

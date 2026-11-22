@@ -22,7 +22,7 @@ pcntl_signal(SIGINT,static function () use (&$stopping) { $stopping=true; });
 umask(0007);
 $storage=new Storage(getenv('VCS_DATA_DIR') ?: '/data', getenv('VCS_STATE_DIR') ?: '/state', getenv('VCS_PATH_TEMPLATE') ?: '{repo}/{branch}');
 $service=new Service($storage,'/run/micx/id_key','/run/micx/known_hosts');
-$dispatcher=new Dispatcher($storage,$service->execute(...));
+$dispatcher=new Dispatcher($service->execute(...));
 $connection=new AMQPStreamConnection(getenv('AMQP_HOST') ?: 'rabbitmq',(int)(getenv('AMQP_PORT') ?: 5672),getenv('AMQP_USER') ?: 'micx',getenv('AMQP_PASSWORD') ?: 'micx',getenv('AMQP_VHOST') ?: '/',false,'AMQPLAIN',null,'en_US',5,130,null,false,60);
 $heartbeat=new \PhpAmqpLib\Connection\Heartbeat\PCNTLHeartbeatSender($connection);
 $heartbeat->register();
@@ -43,7 +43,7 @@ $channel->basic_consume('micx.vcs.v1.requests','',false,false,false,false,functi
     try { $request=json_decode($msg->getBody(),true,64,JSON_THROW_ON_ERROR); }
     catch (\JsonException) { $msg->reject(false); return; }
     if (!is_array($request) || ($request['id'] ?? null)!==$id) { $msg->reject(false); return; }
-    // Publish cached result before ack. If callback expired, a retry retrieves it by ID.
+    // Fehlerantworten sind endgültige Ergebnisse; nach bestätigtem Reply immer ack.
     $response=$dispatcher->handle($request);
     $nacked=false;
     $channel->basic_publish(new AMQPMessage(json_encode($response,JSON_THROW_ON_ERROR),['content_type'=>'application/json','correlation_id'=>$id,'expiration'=>'300000']), '',$reply);

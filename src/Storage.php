@@ -10,7 +10,7 @@ final class Storage
             if (is_link($dir) || realpath($dir) !== $dir) throw new \RuntimeException('Storage roots must be canonical absolute paths');
         }
         if ($data === $state || str_starts_with($state, $data.'/') || str_starts_with($data, $state.'/')) throw new \RuntimeException('Data and private state must be disjoint');
-        foreach (['locks', 'requests', 'workspaces'] as $name) if (!is_dir("$state/$name")) mkdir("$state/$name", 0700);
+        foreach (['locks', 'workspaces'] as $name) if (!is_dir("$state/$name")) mkdir("$state/$name", 0700);
     }
     public static function relative(string $path, bool $empty = false): string
     {

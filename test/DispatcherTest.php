@@ -13,11 +13,11 @@ final class DispatcherTest extends TestCase
     public function testPingReportsMissingSshWithoutStartingRepositoryWork(): void
     {
         $base = sys_get_temp_dir() . '/micx-ping-' . bin2hex(random_bytes(8));
-        $storage = new Storage($base . '/data', $base . '/state');
+        $storage = new Storage($base . '/data');
         $service = new Service($storage, $base . '/key', $base . '/known_hosts');
         $dispatcher = new Dispatcher($service->execute(...));
 
-        $reply = $dispatcher->handle(['version' => 1, 'id' => 'ping-no-key', 'method' => 'ping', 'params' => []]);
+        $reply = $dispatcher->handle(['version' => 1, 'id' => 'ping-no-key', 'method' => 'ping', 'params' => ['url' => 'git@example.test:demo/site.git', 'branch' => 'main', 'directory' => 'demo/site']]);
         self::assertTrue($reply['ok']);
         self::assertTrue($reply['result']['pong']);
         self::assertFalse($reply['result']['ready']);
@@ -27,12 +27,11 @@ final class DispatcherTest extends TestCase
             'version' => 1,
             'id' => 'checkout-no-key',
             'method' => 'checkout',
-            'params' => ['url' => 'git@example.test:demo/site.git'],
+            'params' => ['url' => 'git@example.test:demo/site.git', 'branch' => 'main', 'directory' => 'demo/site'],
         ]);
         self::assertFalse($checkout['ok']);
         self::assertSame('SSH_KEY_MISSING', $checkout['error']['code']);
         self::assertSame([], glob($base . '/data/*'));
-        self::assertSame([], glob($base . '/state/workspaces/*'));
 
         file_put_contents($base . '/key', 'test-key-content');
         file_put_contents($base . '/known_hosts', 'test-host-content');

@@ -23,7 +23,7 @@ final class GitIntegrationTest extends TestCase
     public function testSdkMethodsUseClientDirectoryWithoutWorkspaceRegistry(): void
     {
         $base = sys_get_temp_dir() . '/micx-service-' . bin2hex(random_bytes(8));
-        $storage = new \\Micx\\SecVcs\\Storage($base . '/data');
+        $storage = new \Micx\SecVcs\Storage($base . '/data');
         $directory = $base . '/data/repo/main';
         mkdir($directory, 0770, true);
         $git = new SecureGit(
@@ -35,7 +35,7 @@ final class GitIntegrationTest extends TestCase
         );
         $git->initialize('main', true);
 
-        $service = new \\Micx\\SecVcs\\Service($storage, $base . '/key', $base . '/known_hosts');
+        $service = new \Micx\SecVcs\Service($storage, $base . '/key', $base . '/known_hosts');
         $params = ['url' => 'git@example.test:repo.git', 'branch' => 'main', 'directory' => 'repo/main'];
 
         self::assertFalse($service->execute('status', $params)['hasUnpushedChanges']);
@@ -53,7 +53,7 @@ final class GitIntegrationTest extends TestCase
         try {
             $service->execute('status', array_replace($params, ['directory' => '../invalid']));
             self::fail('Traversal accepted');
-        } catch (\\Micx\\SecVcs\\Fault $e) {
+        } catch (\Micx\SecVcs\Fault $e) {
             self::assertSame('INVALID_PATH', $e->kind);
         }
     }

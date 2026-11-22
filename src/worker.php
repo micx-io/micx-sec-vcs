@@ -20,7 +20,7 @@ pcntl_async_signals(true);
 pcntl_signal(SIGTERM,static function () use (&$stopping) { $stopping=true; });
 pcntl_signal(SIGINT,static function () use (&$stopping) { $stopping=true; });
 umask(0007);
-$storage=new Storage(getenv('VCS_DATA_DIR') ?: '/data', getenv('VCS_STATE_DIR') ?: '/state', getenv('VCS_PATH_TEMPLATE') ?: '{repo}/{branch}');
+$storage=new Storage(getenv('VCS_DATA_DIR') ?: '/data');
 $service=new Service($storage,'/run/micx/id_key','/run/micx/known_hosts');
 $dispatcher=new Dispatcher($service->execute(...));
 $connection=new AMQPStreamConnection(getenv('AMQP_HOST') ?: 'rabbitmq',(int)(getenv('AMQP_PORT') ?: 5672),getenv('AMQP_USER') ?: 'micx',getenv('AMQP_PASSWORD') ?: 'micx',getenv('AMQP_VHOST') ?: '/',false,'AMQPLAIN',null,'en_US',5,130,null,false,60);

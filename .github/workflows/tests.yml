@@ -22,9 +22,7 @@ jobs:
       - name: RPC integration and unit tests
         env:
           AMQP_TEST_HOST: 127.0.0.1
-          AMQP_HOST: 127.0.0.1
-          AMQP_USER: guest
-          AMQP_PASSWORD: guest
+          CONF_AMQ_CONNECTION: rabbitmq://guest:guest@127.0.0.1:5672/
         run: |
           export VCS_DATA_DIR="$RUNNER_TEMP/micx-data"
           broker_id='${{ job.services.rabbitmq.id }}'

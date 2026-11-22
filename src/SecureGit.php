@@ -112,10 +112,31 @@ final class SecureGit extends GitRepository
         }
     }
     public function push() { $this->run(['push', 'origin', 'HEAD:refs/heads/'.trim($this->run(['symbolic-ref', '--short', 'HEAD']))]); }
-    public function commit(string $message)
+    /**
+     * Commits staged working-tree changes with a per-command Git identity.
+     * The identity is not written to Git configuration and never affects push.
+     *
+     * Example: $git->commit('Update', 'Jane Doe', 'jane@example.com');
+     *
+     * @param string $message Non-empty commit message.
+     * @param ?string $authorName Optional author/committer name.
+     * @param ?string $authorEmail Optional author/committer email.
+     * @return void
+     * @see \Phore\VCS\Git\GitRepository::commit()
+     */
+    public function commit(string $message, ?string $authorName = null, ?string $authorEmail = null)
     {
         $this->run(['add', '--all', '--', '.']);
-        if ($this->run(['diff', '--cached', '--name-only']) !== '') $this->run(['commit', '--no-gpg-sign', '-m', $message]);
+        if ($this->run(['diff', '--cached', '--name-only']) === '') {
+            return;
+        }
+
+        // Die Identität gilt ausschließlich für dieses Git-Command.
+        $args = [];
+        if ($authorName !== null && $authorEmail !== null) {
+            $args = ['-c', 'user.name=' . $authorName, '-c', 'user.email=' . $authorEmail];
+        }
+        $this->run([...$args, 'commit', '--no-gpg-sign', '-m', $message]);
     }
     /**
      * Status für die öffentliche Repository-API: uncommittete Dateien oder

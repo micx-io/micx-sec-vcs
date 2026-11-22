@@ -22,7 +22,7 @@ final class RabbitMqIntegrationTest extends TestCase
             });
             // Die korrelierte Antwort belegt den vollständigen Broker-/Worker-Rundlauf.
             $channel->basic_publish(new AMQPMessage(
-                json_encode(['version' => 1, 'id' => $id, 'method' => 'ping', 'params' => []], JSON_THROW_ON_ERROR),
+                json_encode(['version' => 1, 'id' => $id, 'method' => 'ping', 'params' => ['url' => 'git@example.test:demo/site.git', 'branch' => 'main', 'directory' => 'demo/site']], JSON_THROW_ON_ERROR),
                 ['correlation_id' => $id, 'reply_to' => $reply],
             ), 'micx.vcs.v1', 'rpc.request');
             $deadline = microtime(true) + 5;
@@ -40,7 +40,7 @@ final class RabbitMqIntegrationTest extends TestCase
             $connection->close();
         }
     }
-    public function testWorkerReturnsAndReplaysValidationError(): void
+    public function testWorkerAcknowledgesEachFailedOperation(): void
     {
         if (!getenv('AMQP_TEST_HOST')) self::markTestSkipped('Set AMQP_TEST_HOST and start src/worker.php');
         $c=new AMQPStreamConnection(getenv('AMQP_TEST_HOST'),5672,'guest','guest'); $ch=$c->channel();
@@ -58,7 +58,7 @@ final class RabbitMqIntegrationTest extends TestCase
                 while(count($responses)<$i+1) $ch->wait(null,false,5);
             }
             self::assertSame('INVALID_REPOSITORY',$responses[0]['error']['code']);
-            self::assertSame($responses[0],$responses[1]);
+            self::assertSame('INVALID_REPOSITORY',$responses[1]['error']['code']);
         } finally { $ch->close(); $c->close(); }
     }
     public function testConcurrentRequestsEachReceiveExactlyTheirOwnReply(): void
@@ -94,6 +94,22 @@ final class RabbitMqIntegrationTest extends TestCase
             self::markTestSkipped('Requires running worker and broker');
         }
 
+        // Worker und PHPUnit teilen das VCS_DATA_DIR-Volume.
+        $root = getenv('VCS_DATA_DIR') ?: '/data';
+        $unique = bin2hex(random_bytes(8));
+        $relative = 'rpc-fixture-' . $unique . '/main';
+        $directory = $root . '/' . $relative;
+        mkdir($directory, 0770, true);
+        $url = 'git@example.test:fixtures/' . $unique . '.git';
+        $git = new \Micx\SecVcs\SecureGit(
+            $url,
+            $directory,
+            $directory . '/.git',
+            '/run/micx/id_key',
+            '/run/micx/known_hosts',
+        );
+        $git->initialize('main', true);
+
         $connection = new AMQPStreamConnection(getenv('AMQP_TEST_HOST'), 5672, 'guest', 'guest');
         $channel = $connection->channel();
         try {
@@ -109,20 +125,27 @@ final class RabbitMqIntegrationTest extends TestCase
                 }
             );
 
-            // Derselbe RPC-Umschlag wie im SDK: keine SSH-Konfiguration nötig.
-            $call = static function (string $method, array $params) use ($channel, $replyQueue, &$responses): array {
+            $params = ['url' => $url, 'branch' => 'main', 'directory' => $relative];
+            $call = static function (string $method, array $extra = []) use ($channel, $replyQueue, &$responses, $params): array {
                 $id = bin2hex(random_bytes(16));
-                $request = ['version' => 1, 'id' => $id, 'method' => $method, 'params' => $params];
+                $request = [
+                    'version' => 1,
+                    'id' => $id,
+                    'method' => $method,
+                    'params' => $params + $extra,
+                ];
                 $channel->basic_publish(new AMQPMessage(
                     json_encode($request, JSON_THROW_ON_ERROR),
                     ['correlation_id' => $id, 'reply_to' => $replyQueue]
                 ), 'micx.vcs.v1', 'rpc.request');
+
                 $deadline = microtime(true) + 10;
                 while (!isset($responses[$id])) {
                     $remaining = $deadline - microtime(true);
                     self::assertGreaterThan(0, $remaining, 'Timeout for RPC ' . $method);
                     $channel->wait(null, false, $remaining);
                 }
+
                 $response = $responses[$id];
                 unset($responses[$id]);
                 self::assertSame($id, $response['id']);
@@ -130,28 +153,13 @@ final class RabbitMqIntegrationTest extends TestCase
                 return $response['result'];
             };
 
-            $unique = bin2hex(random_bytes(8));
-            $repo = $call('create', [
-                'url' => 'git@example.test:fixtures/' . $unique . '.git',
-                'branch' => 'main',
-                'directory' => 'sdk-rpc-' . $unique,
-            ]);
-            $workspace = ['workspace' => $repo['workspace']];
-            self::assertSame('main', $repo['branch']);
-            self::assertFalse($call('status', $workspace)['hasUnpushedChanges']);
-            self::assertSame([], $call('log', $workspace)['entries']);
-
-            $call('update', $workspace + [
-                'files' => [['path' => 'hello.txt', 'content' => base64_encode('hello')]],
-            ]);
-            self::assertTrue($call('status', $workspace)['hasUnpushedChanges']);
-            $commit = $call('commit', $workspace + ['message' => 'Broker contract']);
-            $history = $call('log', $workspace)['entries'];
-            self::assertSame($commit['revision'], $history[0]['id']);
-            self::assertSame('Broker contract', $history[0]['message']);
-            $branches = $call('branches', $workspace)['branches'];
-            self::assertSame('main', $branches[0]['name']);
-            self::assertSame($history[0], $branches[0]['latestCommit']);
+            self::assertFalse($call('status')['hasUnpushedChanges']);
+            self::assertSame([], $call('log')['entries']);
+            file_put_contents($directory . '/hello.txt', 'hello');
+            self::assertTrue($call('status')['hasUnpushedChanges']);
+            $commit = $call('commit', ['message' => 'Broker contract']);
+            self::assertSame($commit['revision'], $call('log')['entries'][0]['id']);
+            self::assertSame('main', $call('branches')['branches'][0]['name']);
         } finally {
             $channel->close();
             $connection->close();

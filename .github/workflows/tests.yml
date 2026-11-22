@@ -27,7 +27,6 @@ jobs:
           AMQP_PASSWORD: guest
         run: |
           export VCS_DATA_DIR="$RUNNER_TEMP/micx-data"
-          export VCS_STATE_DIR="$RUNNER_TEMP/micx-state"
           broker_id='${{ job.services.rabbitmq.id }}'
           docker exec "$broker_id" rabbitmqctl stop_app
           sh docker/supervisor.sh php src/worker.php >> "$RUNNER_TEMP/worker.log" 2>&1 &
@@ -46,7 +45,7 @@ jobs:
           kill -0 "$supervisor_pid"
           docker exec "$broker_id" rabbitmqctl start_app
           wait_log 'worker ready' 1
-          # A second worker uses the same queue, storage and request locks.
+          # A second worker uses the same queue, data volume and Git-directory locks.
           sh docker/supervisor.sh php src/worker.php >> "$RUNNER_TEMP/worker.log" 2>&1 &
           second_pid=$!
           wait_log 'worker ready' 2

@@ -14,9 +14,9 @@ RUN composer install --no-dev --no-scripts --no-plugins --prefer-dist --no-inter
 
 FROM base
 RUN addgroup -g 10001 micx && adduser -D -u 10001 -G micx micx \
- && mkdir -p /data /state /run/micx /app \
- && chown micx:micx /data /state /run/micx \
- && chmod 700 /state /run/micx
+ && mkdir -p /data /run/micx /app \
+ && chown micx:micx /data /run/micx \
+ && chmod 700 /run/micx
 WORKDIR /app
 COPY --from=dependencies /app/vendor ./vendor
 COPY src ./src

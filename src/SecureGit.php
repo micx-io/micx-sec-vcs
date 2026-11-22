@@ -75,12 +75,6 @@ final class SecureGit extends GitRepository
         $this->run(['fetch', '--no-tags', 'origin', '+refs/heads/'.$branch.':refs/remotes/origin/'.$branch]);
         $this->run(['checkout', '-b', $branch, 'refs/remotes/origin/'.$branch]);
     }
-    public function defaultBranch(): string
-    {
-        $out = $this->run(['ls-remote', '--symref', $this->origin, 'HEAD']);
-        if (!preg_match('~^ref: refs/heads/(.+)\tHEAD$~m', $out, $m)) throw new Fault('EMPTY_REPOSITORY', 'Remote HEAD does not name a branch');
-        return Storage::branch($m[1]);
-    }
     public function pull()
     {
         $branch = trim($this->run(['symbolic-ref', '--short', 'HEAD']));
@@ -204,21 +198,33 @@ final class SecureGit extends GitRepository
         return $branches;
     }
 
+    /**
+     * Required by the phore/vcs repository interface.
+     * Returns the current Git working-tree changes without a savepoint file.
+     *
+     * @return list<array{0:string,1:string}>
+     * @see \Phore\VCS\VcsRepository::getChangedFiles()
+     */
     public function getChangedFiles(): array
     {
-        $base = is_file($this->gitDir.'/micx_savepoint') ? trim(file_get_contents($this->gitDir.'/micx_savepoint')) : 'HEAD';
-        $parts = explode("\0", rtrim($this->run(['diff','--no-renames','--name-status','-z',$base,'--']), "\0"));
-        $changes=[];
-        for ($i=0; $i+1<count($parts); $i+=2) $changes[]=[$parts[$i],$parts[$i+1]];
+        $output = $this->run(['status', '--porcelain=v1', '-z', '--no-renames']);
+        if ($output === '') {
+            return [];
+        }
+
+        $changes = [];
+        foreach (explode("\0", rtrim($output, "\0")) as $entry) {
+            $changes[] = [trim(substr($entry, 0, 2)), substr($entry, 3)];
+        }
+
         return $changes;
     }
-    public function saveSavepoint() { file_put_contents($this->gitDir.'/micx_savepoint',$this->getRev(),LOCK_EX); }
+
     public function getRev(): string
     {
         // A newly created repository has an unborn branch and no commit yet.
         $branch = trim($this->run(['symbolic-ref', '--short', 'HEAD']));
         return trim($this->run(['for-each-ref', '--format=%(objectname)', 'refs/heads/'.$branch]));
     }
-    public function exists() { return is_file($this->gitDir.'/HEAD'); }
     public function getLocalRepoPath(): string { return $this->work; }
 }

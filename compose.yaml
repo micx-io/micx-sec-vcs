@@ -22,7 +22,6 @@ services:
     secrets: [ssh_key, known_hosts]
     volumes:
       - data:/data
-      - state:/state
     tmpfs:
       - /tmp:size=16m,mode=1777
       - /run/micx:size=1m,uid=10001,gid=10001,mode=0700
@@ -45,7 +44,6 @@ secrets:
     file: ./secrets/known_hosts
 volumes:
   data:
-  state:
   queue:
 networks:
   rpc:

@@ -77,10 +77,15 @@ nicht an Clients durchgereicht.
 | `ping` | — | `pong`, `ready`, `errors` |
 | `pull` | — | `revision`; erstellt Checkout bei Bedarf |
 | `push` | — | `revision` |
-| `commit` | `message?` | `revision`; erzeugt keinen Leer-Commit |
+| `commit` | `message?`, `authorName?`, `authorEmail?` | `revision`; erzeugt keinen Leer-Commit |
 | `status` | — | `revision`, `hasUnpushedChanges` |
 | `log` | — | `entries` |
 | `branches` | — | `branches` |
+
+`authorName` und `authorEmail` müssen gemeinsam angegeben werden.
+Sie setzen nur für diesen `commit` den Git-Author und Committer; die
+Identität wird nicht in der Git-Konfiguration gespeichert. Ohne beide
+Felder verwendet der Worker `MICX <micx@localhost>`.
 
 `sync()` ist eine SDK-Operation aus `pull()` und `push()` und kein
 zusätzlicher Worker-RPC. Es gibt keine RPC-Methoden für allgemeine

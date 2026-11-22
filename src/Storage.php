@@ -18,8 +18,12 @@ final class Storage
         if (is_link($data) || realpath($data) !== $data) {
             throw new \RuntimeException('Data root must be a canonical absolute path');
         }
-        if (!is_dir($data . '/.mix-vcs-locks') && !mkdir($data . '/.mix-vcs-locks', 0700)) {
+        $lockDirectory = $data . '/.mix-vcs-locks';
+        if (!is_dir($lockDirectory) && !mkdir($lockDirectory, 0700)) {
             throw new \RuntimeException('Cannot create Git lock directory');
+        }
+        if (is_link($lockDirectory) || realpath($lockDirectory) !== $lockDirectory) {
+            throw new \RuntimeException('Git lock directory must not be a symlink');
         }
     }
 

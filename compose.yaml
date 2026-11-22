@@ -16,7 +16,7 @@ services:
   vcs:
     build: .
     environment:
-      AMQP_HOST: rabbitmq
+      CONF_AMQ_CONNECTION: rabbitmq://micx:micx@rabbitmq:5672/
       VCS_SSH_KEY_FILE: /run/secrets/ssh_key
       VCS_KNOWN_HOSTS_FILE: /run/secrets/known_hosts
     secrets: [ssh_key, known_hosts]

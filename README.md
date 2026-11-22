@@ -97,11 +97,20 @@ werden über `flock` gegen gleichzeitige Worker-Operationen gesperrt.
 | Einstellung | Standard | Zweck |
 |---|---|---|
 | `VCS_DATA_DIR` | `/data` | Persistentes gemeinsames Checkout-Volume |
-| `AMQP_HOST` / `AMQP_PORT` | `rabbitmq` / `5672` | RabbitMQ |
-| `AMQP_USER` / `AMQP_PASSWORD` | `micx` / `micx` | Broker-Anmeldung |
-| `AMQP_VHOST` | `/` | Broker-VHost |
+| `CONF_AMQ_CONNECTION` | `rabbitmq://micx:micx@rabbitmq:5672/` | RabbitMQ-Verbindung mit Host, Port, Login und VHost |
 | `VCS_SSH_KEY_FILE` | über Secrets | SSH-Privatschlüssel |
 | `VCS_KNOWN_HOSTS_FILE` | `/run/secrets/known_hosts` | Geprüfte SSH-Hostschlüssel |
+
+Die Broker-Verbindung wird ausschließlich über `CONF_AMQ_CONNECTION`
+konfiguriert. Das Format lautet `rabbitmq://USER:PASSWORD@HOST:PORT/VHOST`;
+`amqp://` wird ebenfalls akzeptiert. Der Pfad steht für den
+RabbitMQ-**Virtual Host**, nicht für den Topic-Exchange `micx.vcs.v1`.
+Ohne Pfadangabe oder mit `/` wird VHost `/` verwendet, für einen
+benannten VHost beispielsweise `/projekt`. Der Standard-VHost kann auch
+explizit als `/%2F` kodiert werden. Sonderzeichen in Benutzername,
+Passwort und VHost müssen URL-encoded sein. TLS-Verbindungen über
+`amqps://` werden derzeit nicht unterstützt. Die alten fünf
+`AMQP_*`-Variablen werden nicht mehr eingelesen.
 
 Der Container läuft als UID/GID 10001, mit read-only Root-Dateisystem,
 ohne veröffentlichte Ports und ohne Linux-Capabilities. Er benötigt

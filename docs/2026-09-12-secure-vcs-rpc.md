@@ -31,7 +31,10 @@ geprüft. Pfad-Traversal und Symlinks im Verzeichnis werden abgewiesen.
 
 Das Shared Volume darf nur vertrauenswürdigen Anwendungen bereitgestellt
 werden, da ihnen jetzt auch die lokalen Git-Metadaten zugänglich sind.
-SSH-Key und `known_hosts` bleiben beim Worker unter `/run/micx`.
+Der SSH-Key bleibt beim Worker unter `/run/micx`; `known_hosts` wird dort
+als leere Datei im tmpfs bei jedem Containerstart neu angelegt.
+SSH akzeptiert unbekannte Host-Keys beim ersten Kontakt und prüft sie
+für die Dauer des Container-Lebenszyklus gegen diese temporäre Liste.
 
 ## § 3 RPC-Form
 
@@ -112,7 +115,7 @@ Worker-Instanzen mit gemeinsamem Volume und verlässlichem `flock`.
 
 Nur validierte Git-SCP-URLs `git@host:owner/repository.git` sind
 derzeit für den Worker erlaubt. Der Worker erzeugt keinen beliebigen
-Shell-Befehl. SSH nutzt `StrictHostKeyChecking=yes` und die
+Shell-Befehl. SSH nutzt `StrictHostKeyChecking=accept-new` und die
 konfigurierten Secrets; Git-Hooks und Submodule werden deaktiviert.
 
 Der Container läuft unter UID/GID 10001, mit read-only

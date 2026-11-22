@@ -25,8 +25,8 @@ final class DispatcherTest extends TestCase
 
         $checkout = $dispatcher->handle([
             'version' => 1,
-            'id' => 'checkout-no-key',
-            'method' => 'checkout',
+            'id' => 'pull-no-key',
+            'method' => 'pull',
             'params' => ['url' => 'git@example.test:demo/site.git', 'branch' => 'main', 'directory' => 'demo/site'],
         ]);
         self::assertFalse($checkout['ok']);

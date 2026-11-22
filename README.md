@@ -74,8 +74,18 @@ Kein Port wird veröffentlicht. Broker: `rabbitmq:5672`, User/Passwort `micx`/`m
 | `VCS_DATA_DIR` | `/data` |
 | `VCS_STATE_DIR` | `/state`, niemals an Apps mounten |
 | `VCS_PATH_TEMPLATE` | `{repo}/{branch}`, jeweils normalisiert und mit Hash |
-| `AMQP_HOST`, `AMQP_PORT` | `rabbitmq`, `5672` |
-| `AMQP_USER`, `AMQP_PASSWORD`, `AMQP_VHOST` | `micx`, `micx`, `/` |
+| `CONF_AMQ_CONNECTION` | `rabbitmq://micx:micx@rabbitmq:5672/` |
+
+Die Message-Queue-Verbindung wird ausschließlich über `CONF_AMQ_CONNECTION`
+konfiguriert. Das Format lautet `rabbitmq://USER:PASSWORT@HOST:PORT/VHOST`;
+`amqp://` wird ebenfalls akzeptiert. Der abschließende Pfad bezeichnet den
+RabbitMQ-**Virtual Host**, nicht den Topic-Exchange. Ein leerer Pfad oder `/`
+verwendet den Standard-VHost `/`; für einen benannten VHost beispielsweise
+`/projekt`, für den explizit codierten Standard-VHost `/%2F` verwenden.
+Sonderzeichen in Benutzername, Passwort und VHost müssen URL-encoded sein.
+Ohne Angabe gilt die obige Compose-Standardverbindung; TLS-URIs (`amqps://`)
+werden derzeit nicht unterstützt. Die bisherigen fünf `AMQP_*`-Variablen
+werden vom Worker nicht mehr ausgewertet.
 
 Der Container läuft mit UID/GID 10001, read-only Root-Dateisystem und ohne Linux-Capabilities. Die Default-Branch wird remote erkannt. Branches haben getrennte Arbeitsverzeichnisse. Temporäre Checkouts müssen ausdrücklich mit `release` freigegeben werden.
 

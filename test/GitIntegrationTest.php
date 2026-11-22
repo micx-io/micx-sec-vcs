@@ -20,6 +20,44 @@ final class GitIntegrationTest extends TestCase
         self::assertStringStartsWith('PK',$git->run(['archive','--format=zip','HEAD']));
         self::assertSame('', $git->run(['status','--porcelain']));
     }
+    public function testCommitUsesRpcAuthorAndKeepsDefaultForFollowingCommit(): void
+    {
+        $base = sys_get_temp_dir() . '/micx-author-' . bin2hex(random_bytes(8));
+        $storage = new \Micx\SecVcs\Storage($base . '/data');
+        $directory = $base . '/data/author/main';
+        mkdir($directory, 0770, true);
+
+        $git = new SecureGit('git@example.test:author.git', $directory, $directory . '/.git', $base . '/key', $base . '/known_hosts');
+        $git->initialize('main', true);
+        $service = new \Micx\SecVcs\Service($storage, $base . '/key', $base . '/known_hosts');
+        $params = ['url' => 'git@example.test:author.git', 'branch' => 'main', 'directory' => 'author/main'];
+
+        file_put_contents($directory . '/test.txt', 'one');
+        $service->execute('commit', $params + [
+            'message' => 'Authored commit',
+            'authorName' => 'Jane Doe',
+            'authorEmail' => 'jane@example.com',
+        ]);
+
+        self::assertSame('Jane Doe <jane@example.com>', trim($git->run(['show', '-s', '--format=%an <%ae>', 'HEAD'])));
+        self::assertSame('Jane Doe <jane@example.com>', trim($git->run(['show', '-s', '--format=%cn <%ce>', 'HEAD'])));
+
+        file_put_contents($directory . '/test.txt', 'two');
+        $service->execute('commit', $params + ['message' => 'Default author']);
+        self::assertSame('MICX <micx@localhost>', trim($git->run(['show', '-s', '--format=%an <%ae>', 'HEAD'])));
+
+        try {
+            $service->execute('commit', $params + [
+                'message' => 'Invalid author',
+                'authorName' => "Bad\nName",
+                'authorEmail' => 'bad@example.com',
+            ]);
+            self::fail('Expected invalid commit identity');
+        } catch (\Micx\SecVcs\Fault $e) {
+            self::assertSame('INVALID_REQUEST', $e->kind);
+        }
+    }
+
     public function testSdkMethodsUseClientDirectoryWithoutWorkspaceRegistry(): void
     {
         $base = sys_get_temp_dir() . '/micx-service-' . bin2hex(random_bytes(8));

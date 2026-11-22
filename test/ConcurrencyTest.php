@@ -7,10 +7,10 @@ final class ConcurrencyTest extends TestCase
     public function testConcurrentRequestsWithSameIdBothExecute(): void
     {
         $base=sys_get_temp_dir().'/micx-concurrent-'.bin2hex(random_bytes(8));
-        new Storage($base.'/data',$base.'/state');
+        new Storage($base.'/data');
         $code= <<<'CHILD'
 require $argv[1];
-$s=new Micx\SecVcs\Storage($argv[2].'/data',$argv[2].'/state');
+$s=new Micx\SecVcs\Storage($argv[2].'/data');
 $d=new Micx\SecVcs\Dispatcher(function() use ($argv) {
     file_put_contents($argv[2].'/executions','write',FILE_APPEND);
     usleep(250000);
@@ -31,10 +31,10 @@ CHILD;
     public function testSameWorkspaceWaitsWhileOtherWorkspaceCanRun(): void
     {
         $base=sys_get_temp_dir().'/micx-locks-'.bin2hex(random_bytes(8));
-        $s=new Storage($base.'/data',$base.'/state');
+        $s=new Storage($base.'/data');
         $code= <<<'CHILD'
 require $argv[1];
-$s=new Micx\SecVcs\Storage($argv[2].'/data',$argv[2].'/state');
+$s=new Micx\SecVcs\Storage($argv[2].'/data');
 $s->lock('workspace:two',function() use ($argv) { file_put_contents($argv[2].'/other','yes'); });
 $s->lock('workspace:one',function() use ($argv) { file_put_contents($argv[2].'/same','yes'); });
 CHILD;

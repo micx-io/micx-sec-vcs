@@ -101,7 +101,7 @@ final class RabbitMqIntegrationTest extends TestCase
         $directory = $root . '/' . $relative;
         mkdir($directory, 0770, true);
         $url = 'git@example.test:fixtures/' . $unique . '.git';
-        $git = new \\Micx\\SecVcs\\SecureGit(
+        $git = new \Micx\SecVcs\SecureGit(
             $url,
             $directory,
             $directory . '/.git',

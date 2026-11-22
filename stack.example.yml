@@ -29,8 +29,10 @@ services:
       - vcs_ssh_key
     volumes:
       - vcs-data:/data
-    tmpfs:
-      - /run/micx
+      - type: tmpfs
+        target: /run/micx
+        tmpfs:
+          size: 1048576
     networks:
       - rpc
       - egress

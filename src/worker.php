@@ -23,7 +23,22 @@ umask(0007);
 $storage=new Storage(getenv('VCS_DATA_DIR') ?: '/data');
 $service=new Service($storage,'/run/micx/id_key','/run/micx/known_hosts');
 $dispatcher=new Dispatcher($service->execute(...));
-$connection=new AMQPStreamConnection(getenv('AMQP_HOST') ?: 'rabbitmq',(int)(getenv('AMQP_PORT') ?: 5672),getenv('AMQP_USER') ?: 'micx',getenv('AMQP_PASSWORD') ?: 'micx',getenv('AMQP_VHOST') ?: '/',false,'AMQPLAIN',null,'en_US',5,130,null,false,60);
+// Ein Connection-String konfiguriert Host, Port, Credentials und RabbitMQ-VHost.
+$uri=getenv('CONF_AMQ_CONNECTION') ?: 'rabbitmq://micx:micx@rabbitmq:5672/';
+$amq=parse_url($uri);
+if ($amq===false || !in_array(strtolower($amq['scheme'] ?? ''), ['rabbitmq','amqp'],true)
+    || empty($amq['host']) || !isset($amq['user'],$amq['pass'])
+    || isset($amq['query']) || isset($amq['fragment'])) {
+    throw new \InvalidArgumentException('Invalid CONF_AMQ_CONNECTION URI');
+}
+$connection=new AMQPStreamConnection(
+    $amq['host'],
+    $amq['port'] ?? 5672,
+    rawurldecode($amq['user']),
+    rawurldecode($amq['pass']),
+    rawurldecode(ltrim($amq['path'] ?? '/', '/')) ?: '/',
+    false,'AMQPLAIN',null,'en_US',5,130,null,false,60
+);
 $heartbeat=new \PhpAmqpLib\Connection\Heartbeat\PCNTLHeartbeatSender($connection);
 $heartbeat->register();
 $channel=$connection->channel();

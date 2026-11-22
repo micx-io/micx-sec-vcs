@@ -75,6 +75,7 @@ final class Service
                 // Fehlschläge beim ersten Fetch dürfen keinen ungültigen Checkout zurücklassen.
                 try {
                     $git->initialize($branch);
+                    $this->makeCheckoutWorldWritable($directory);
                 } catch (\Throwable $e) {
                     $this->removeDirectory($directory);
                     throw $e;
@@ -94,6 +95,7 @@ final class Service
                         throw new Fault('DIRTY_WORKTREE', 'Commit changes before pull');
                     }
                     $git->pull();
+                    $this->makeCheckoutWorldWritable($directory);
                     break;
 
                 case 'push':
@@ -138,6 +140,47 @@ final class Service
 
             return ['revision' => $git->getRev()];
         });
+    }
+
+    /**
+     * Make a checkout shared-volume accessible after Git has changed its files.
+     * Directories get 0777; files get 0666 while preserving existing executable bits.
+     * Symlinks are never followed or chmodded.
+     */
+    private function makeCheckoutWorldWritable(string $directory): void
+    {
+        // Parent directories must be traversable by other container users, too.
+        $parent = $directory;
+        while (true) {
+            if (is_link($parent) || !is_dir($parent) || !chmod($parent, 0777)) {
+                throw new Fault('IO_ERROR', 'Cannot set shared checkout directory permissions');
+            }
+            if ($parent === $this->storage->data) {
+                break;
+            }
+            $parent = dirname($parent);
+        }
+
+        $items = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST,
+        );
+        foreach ($items as $item) {
+            if ($item->isLink()) {
+                continue;
+            }
+            $path = $item->getPathname();
+            if ($item->isDir()) {
+                $mode = 0777;
+            } elseif ($item->isFile()) {
+                $mode = (($item->getPerms() & 0111) !== 0) ? 0777 : 0666;
+            } else {
+                continue;
+            }
+            if (!chmod($path, $mode)) {
+                throw new Fault('IO_ERROR', 'Cannot set shared checkout file permissions');
+            }
+        }
     }
 
     private function sshErrors(): array

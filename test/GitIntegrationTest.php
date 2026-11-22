@@ -4,76 +4,60 @@ use Micx\SecVcs\SecureGit;
 use PHPUnit\Framework\TestCase;
 final class GitIntegrationTest extends TestCase
 {
-    public function testPrivateMetadataCommitAndArchive(): void
+    public function testLocalGitMetadataCommitAndArchive(): void
     {
         $base=sys_get_temp_dir().'/micx-git-'.bin2hex(random_bytes(8)); mkdir($base); mkdir($base.'/work');
-        $git=new SecureGit('git@example.test:repo.git',$base.'/work',$base.'/private.git',$base.'/key',$base.'/known_hosts');
+        $git=new SecureGit('git@example.test:repo.git',$base.'/work',$base.'/work/.git',$base.'/key',$base.'/known_hosts');
         $git->run(['init','--bare',$base.'/private.git']);
         $git->run(['config','core.bare','false']);
         $git->run(['config','core.worktree',$base.'/work']);
         file_put_contents($base.'/work/a.txt','hello');
         $git->commit('First commit'); $first=$git->getRev();
         self::assertMatchesRegularExpression('/^[a-f0-9]{40,64}$/',$first);
-        self::assertFileDoesNotExist($base.'/work/.git');
+        self::assertFileExists($base.'/work/.git/HEAD');
         file_put_contents($base.'/work/a.txt','updated'); $git->commit('Update');
         self::assertNotSame($first,$git->getRev());
         self::assertStringStartsWith('PK',$git->run(['archive','--format=zip','HEAD']));
         self::assertSame('', $git->run(['status','--porcelain']));
     }
-    public function testServiceGenerationAndTransfers(): void
+    public function testSdkMethodsUseClientDirectoryWithoutWorkspaceRegistry(): void
     {
-        $base=sys_get_temp_dir().'/micx-service-'.bin2hex(random_bytes(8));
-        $storage=new \Micx\SecVcs\Storage($base.'/data',$base.'/state');
-        $id=hash('sha256','fixture'); $work=$base.'/data/work'; mkdir($work);
-        $git=new SecureGit('git@example.test:repo.git',$work,$base.'/state/workspaces/'.$id.'.git',$base.'/key',$base.'/known_hosts');
-        $git->run(['init','--bare',$base.'/state/workspaces/'.$id.'.git']);
-        $git->run(['config','core.bare','false']); $git->run(['config','core.worktree',$work]);
-        file_put_contents($work.'/a.txt','first'); $git->commit('Initial');
-        $meta=['workspace'=>$id,'path'=>$work,'url'=>'git@example.test:repo.git','branch'=>'main','defaultBranch'=>'main','generation'=>0,'temporary'=>false];
-        $storage->save($storage->metadata($id),$meta);
-        $service=new \Micx\SecVcs\Service($storage,$base.'/key',$base.'/known_hosts');
-        $args=['workspace'=>$id,'expectedRevision'=>$git->getRev(),'expectedGeneration'=>0,'files'=>[['path'=>'a.txt','content'=>base64_encode('second')]]];
-        $updated=$service->execute('update',$args); self::assertSame(1,$updated['generation']);
-        try { $service->execute('update',$args); self::fail('Stale writer accepted'); }
-        catch (\Micx\SecVcs\Fault $e) { self::assertSame('CONFLICT',$e->kind); }
-        self::assertSame('second',base64_decode($service->execute('read',['workspace'=>$id,'paths'=>['a.txt']])['files'][0]['content']));
-        self::assertSame('first',base64_decode($service->execute('snapshot',['workspace'=>$id])['files'][0]['content']));
-        $service->execute('commit',['workspace'=>$id,'expectedRevision'=>$updated['revision'],'expectedGeneration'=>1,'message'=>'Changed']);
-        self::assertSame('second',base64_decode($service->execute('snapshot',['workspace'=>$id])['files'][0]['content']));
-    }
-    public function testCreateWorkspaceAndFirstCommitWithoutMetadata(): void
-    {
-        $base=sys_get_temp_dir().'/micx-create-'.bin2hex(random_bytes(8));
-        $storage=new \Micx\SecVcs\Storage($base.'/data',$base.'/state');
-        $service=new \Micx\SecVcs\Service($storage,$base.'/key',$base.'/known_hosts');
-        $repo=$service->execute('create',['url'=>'git@example.test:new.git','directory'=>'project']);
-        self::assertSame($base.'/data/project',$repo['path']);
-        self::assertSame('',$repo['revision']);
-        self::assertSame('main',$repo['branch']);
-        self::assertFileDoesNotExist($repo['path'].'/.git');
-        $args=['workspace'=>$repo['workspace']];
-        self::assertFalse($service->execute('status', $args)['hasUnpushedChanges']);
-        self::assertSame([], $service->execute('log', $args)['entries']);
-        self::assertSame([], $service->execute('branches', $args)['branches']);
+        $base = sys_get_temp_dir() . '/micx-service-' . bin2hex(random_bytes(8));
+        $storage = new \\Micx\\SecVcs\\Storage($base . '/data');
+        $directory = $base . '/data/repo/main';
+        mkdir($directory, 0770, true);
+        $git = new SecureGit(
+            'git@example.test:repo.git',
+            $directory,
+            $directory . '/.git',
+            $base . '/key',
+            $base . '/known_hosts'
+        );
+        $git->initialize('main', true);
 
-        $service->execute('update',$args+['files'=>[['path'=>'hello.txt','content'=>base64_encode('Hello')]]]);
-        self::assertTrue($service->execute('status', $args)['hasUnpushedChanges']);
-        $commit=$service->execute('commit',$args);
-        self::assertMatchesRegularExpression('/^[a-f0-9]{40,64}$/',$commit['revision']);
-        self::assertSame($commit['revision'],$service->execute('commit',$args)['revision']);
+        $service = new \\Micx\\SecVcs\\Service($storage, $base . '/key', $base . '/known_hosts');
+        $params = ['url' => 'git@example.test:repo.git', 'branch' => 'main', 'directory' => 'repo/main'];
 
-        // Auch saubere lokale Commits sind bis zum Push unveröffentlicht.
-        self::assertTrue($service->execute('status', $args)['hasUnpushedChanges']);
-        $history = $service->execute('log', $args)['entries'];
-        self::assertSame($commit['revision'], $history[0]['id']);
-        self::assertSame('Update workspace', $history[0]['message']);
-        self::assertSame('main', $history[0]['branch']);
-        self::assertNotEmpty($history[0]['timestamp']);
-        $branches = $service->execute('branches', $args)['branches'];
-        self::assertSame('main', $branches[0]['name']);
-        self::assertSame($history[0], $branches[0]['latestCommit']);
-        self::assertSame($repo['workspace'],$service->execute('create',['url'=>'git@example.test:new.git','directory'=>'project'])['workspace']);
+        self::assertFalse($service->execute('status', $params)['hasUnpushedChanges']);
+        self::assertSame([], $service->execute('log', $params)['entries']);
+        self::assertSame([], $service->execute('branches', $params)['branches']);
+        file_put_contents($directory . '/hello.txt', 'Hello');
+
+        self::assertTrue($service->execute('status', $params)['hasUnpushedChanges']);
+        $committed = $service->execute('commit', $params + ['message' => 'First']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{40,64}$/', $committed['revision']);
+        self::assertSame($committed['revision'], $service->execute('commit', $params)['revision']);
+        self::assertSame('First', $service->execute('log', $params)['entries'][0]['message']);
+        self::assertSame('main', $service->execute('branches', $params)['branches'][0]['name']);
+
+        try {
+            $service->execute('status', $params + ['directory' => '../invalid']);
+            self::fail('Traversal accepted');
+        } catch (\\Micx\\SecVcs\\Fault $e) {
+            self::assertSame('INVALID_PATH', $e->kind);
+        }
     }
+
     public function testMergeKeepsOursAndAcceptsNonConflictingRemoteChanges(): void
     {
         $base=sys_get_temp_dir().'/micx-merge-'.bin2hex(random_bytes(8)); mkdir($base); mkdir($base.'/work');

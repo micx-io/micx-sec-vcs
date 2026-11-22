@@ -107,7 +107,20 @@ final class Service
                         || strlen($message) > 8192 || str_contains($message, "\0")) {
                         throw new Fault('INVALID_REQUEST', 'Invalid commit message');
                     }
-                    $git->commit($message);
+                    $authorName = $params['authorName'] ?? null;
+                    $authorEmail = $params['authorEmail'] ?? null;
+                    if (array_key_exists('authorName', $params) !== array_key_exists('authorEmail', $params)) {
+                        throw new Fault('INVALID_REQUEST', 'Commit author name and email must be provided together');
+                    }
+                    if ($authorName !== null || $authorEmail !== null) {
+                        if (!is_string($authorName) || trim($authorName) === ''
+                            || strlen($authorName) > 256 || preg_match('/[\x00-\x1f\x7f]/', $authorName)
+                            || !is_string($authorEmail) || strlen($authorEmail) > 254
+                            || filter_var($authorEmail, FILTER_VALIDATE_EMAIL) === false) {
+                            throw new Fault('INVALID_REQUEST', 'Invalid commit author name or email');
+                        }
+                    }
+                    $git->commit($message, $authorName, $authorEmail);
                     break;
 
                 case 'status':

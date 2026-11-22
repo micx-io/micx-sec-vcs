@@ -21,12 +21,7 @@ else
 fi
 unset VCS_SSH_KEY
 
-known_hosts_file="${VCS_KNOWN_HOSTS_FILE:-/run/secrets/known_hosts}"
-if [ -f "$known_hosts_file" ] && [ -r "$known_hosts_file" ] && [ -s "$known_hosts_file" ] \
-    && cat "$known_hosts_file" > /run/micx/known_hosts 2>/dev/null; then
-    chmod 600 /run/micx/known_hosts
-else
-    rm -f /run/micx/known_hosts
-    echo 'KNOWN_HOSTS_MISSING: known_hosts file is missing, unreadable or empty; ping remains available' >&2
-fi
+# known_hosts is recreated in the ephemeral /run/micx tmpfs on every container start.
+: > /run/micx/known_hosts
+chmod 600 /run/micx/known_hosts
 exec sh /app/docker/supervisor.sh php /app/src/worker.php

@@ -130,14 +130,21 @@ final class Service
     private function sshErrors(): array
     {
         $errors = [];
-        foreach ([
-            [$this->key, 'SSH_KEY_MISSING', 'SSH private key file is missing, unreadable or empty'],
-            [$this->knownHosts, 'KNOWN_HOSTS_MISSING', 'SSH known_hosts file is missing, unreadable or empty'],
-        ] as [$path, $code, $message]) {
-            clearstatcache(true, $path);
-            if (!is_file($path) || !is_readable($path) || filesize($path) <= 0) {
-                $errors[] = ['code' => $code, 'message' => $message];
-            }
+        clearstatcache(true, $this->key);
+        if (!is_file($this->key) || !is_readable($this->key) || filesize($this->key) <= 0) {
+            $errors[] = [
+                'code' => 'SSH_KEY_MISSING',
+                'message' => 'SSH private key file is missing, unreadable or empty',
+            ];
+        }
+
+        // New host keys are written to this temporary file on first SSH contact.
+        clearstatcache(true, $this->knownHosts);
+        if (!is_file($this->knownHosts) || !is_readable($this->knownHosts) || !is_writable($this->knownHosts)) {
+            $errors[] = [
+                'code' => 'KNOWN_HOSTS_MISSING',
+                'message' => 'Temporary SSH known_hosts file is missing or inaccessible',
+            ];
         }
 
         return $errors;

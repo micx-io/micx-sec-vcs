@@ -8,7 +8,7 @@ final class GitIntegrationTest extends TestCase
     {
         $base=sys_get_temp_dir().'/micx-git-'.bin2hex(random_bytes(8)); mkdir($base); mkdir($base.'/work');
         $git=new SecureGit('git@example.test:repo.git',$base.'/work',$base.'/work/.git',$base.'/key',$base.'/known_hosts');
-        $git->run(['init','--bare',$base.'/private.git']);
+        $git->run(['init','--bare',$base.'/work/.git']);
         $git->run(['config','core.bare','false']);
         $git->run(['config','core.worktree',$base.'/work']);
         file_put_contents($base.'/work/a.txt','hello');
@@ -51,7 +51,7 @@ final class GitIntegrationTest extends TestCase
         self::assertSame('main', $service->execute('branches', $params)['branches'][0]['name']);
 
         try {
-            $service->execute('status', $params + ['directory' => '../invalid']);
+            $service->execute('status', array_replace($params, ['directory' => '../invalid']));
             self::fail('Traversal accepted');
         } catch (\\Micx\\SecVcs\\Fault $e) {
             self::assertSame('INVALID_PATH', $e->kind);

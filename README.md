@@ -60,7 +60,12 @@ Verbindungsaufbau könnte einen falschen Key präsentieren.
 ## RPC und Fehlerbehandlung
 
 Die Methoden `ping`, `pull`, `push`, `commit`, `status`, `log`
-und `branches` entsprechen dem SDK. Jeder Aufruf enthält Repository-URL,
+und `branches` entsprechen dem SDK. `commit` akzeptiert zusätzlich
+`authorName` und `authorEmail` (zusammen mit `message`); der Worker
+verwendet beide Angaben ausschließlich für den betreffenden Git-Commit
+als Author und Committer. Ohne Angaben bleibt die Identität
+`MICX <micx@localhost>`. Die Einstellung erfolgt über das SDK mit
+`$repo->setCommitUser($name, $email)`. Jeder Aufruf enthält Repository-URL,
 Branch und relativen Checkout-Pfad. Es gibt keinen State-Mount, keine
 Workspace-Registry und kein Request-Journal.
 

@@ -13,7 +13,7 @@ final class SecureGit extends GitRepository
     {
         $base = ['git', '--git-dir='.$this->gitDir, '--work-tree='.$this->work,
             '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'core.attributesFile=/dev/null',
-            '-c', 'core.sshCommand=ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 -o UserKnownHostsFile='.escapeshellarg($this->knownHosts).' -i '.escapeshellarg($this->key),
+            '-c', 'core.sshCommand=ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -o ConnectTimeout=10 -o UserKnownHostsFile='.escapeshellarg($this->knownHosts).' -i '.escapeshellarg($this->key),
             '-c', 'protocol.allow=never', '-c', 'protocol.ssh.allow=always', '-c', 'protocol.file.allow=never',
             '-c', 'submodule.recurse=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false',
             '-c', 'user.name=MICX', '-c', 'user.email=micx@localhost'];

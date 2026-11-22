@@ -1,0 +1,58 @@
+version: "3.8"
+
+# Single-node Docker Swarm example. For multiple nodes use shared storage
+# with working flock semantics and adapt placement of the worker and clients.
+services:
+  rabbitmq:
+    image: rabbitmq:4-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: micx
+      RABBITMQ_DEFAULT_PASS: change-me
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - rpc
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: any
+
+  vcs:
+    image: ghcr.io/micx-io/micx-sec-vcs:latest
+    environment:
+      CONF_AMQ_CONNECTION: rabbitmq://micx:change-me@rabbitmq:5672/
+      VCS_SSH_KEY_FILE: /run/secrets/vcs_ssh_key
+    secrets:
+      - vcs_ssh_key
+    volumes:
+      - vcs-data:/data
+    tmpfs:
+      - /run/micx
+    networks:
+      - rpc
+      - egress
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: any
+
+secrets:
+  vcs_ssh_key:
+    external: true
+
+volumes:
+  vcs-data:
+  rabbitmq-data:
+
+networks:
+  rpc:
+    driver: overlay
+    internal: true
+  egress:
+    driver: overlay

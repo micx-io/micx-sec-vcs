@@ -198,6 +198,28 @@ final class SecureGit extends GitRepository
         return $branches;
     }
 
+    /**
+     * Required by the phore/vcs repository interface.
+     * Returns the current Git working-tree changes without a savepoint file.
+     *
+     * @return list<array{0:string,1:string}>
+     * @see \Phore\VCS\VcsRepository::getChangedFiles()
+     */
+    public function getChangedFiles(): array
+    {
+        $output = $this->run(['status', '--porcelain=v1', '-z', '--no-renames']);
+        if ($output === '') {
+            return [];
+        }
+
+        $changes = [];
+        foreach (explode("\0", rtrim($output, "\0")) as $entry) {
+            $changes[] = [trim(substr($entry, 0, 2)), substr($entry, 3)];
+        }
+
+        return $changes;
+    }
+
     public function getRev(): string
     {
         // A newly created repository has an unborn branch and no commit yet.

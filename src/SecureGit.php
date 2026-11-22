@@ -24,7 +24,7 @@ final class SecureGit extends GitRepository
         $p = proc_open(array_merge($base, $args), [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes, $this->work, $env);
         if (!is_resource($p)) throw new Fault('GIT_FAILED', 'Cannot start Git');
         fclose($pipes[0]); stream_set_blocking($pipes[1], false); stream_set_blocking($pipes[2], false);
-        $out = ''; $err = ''; $errSize = 0; $exit = -1; $end = microtime(true)+45;
+        $out = ''; $err = ''; $errSize = 0; $exit = -1; $end = microtime(true)+60;
         try {
             do {
                 $out .= stream_get_contents($pipes[1]);

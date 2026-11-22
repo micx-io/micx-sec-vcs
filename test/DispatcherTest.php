@@ -35,7 +35,6 @@ final class DispatcherTest extends TestCase
 
         file_put_contents($base . '/key', 'test-key-content');
         // An empty known_hosts file must be accepted for first-contact TOFU.
-
         file_put_contents($base . '/known_hosts', '');
         self::assertSame(['pong' => true, 'ready' => true, 'errors' => []], $service->execute('ping', ['url' => 'git@example.test:demo/site.git', 'branch' => 'main', 'directory' => 'demo/site']));
     }

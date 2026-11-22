@@ -108,7 +108,7 @@ Es gibt **kein persistentes Request-Journal und keine Deduplizierung
 über Request-IDs**. Bricht die Brokerverbindung oder der Worker vor
 dem Request-`ack` ab, ist erneute Zustellung möglich. Die Operation
 kann dann erneut ausgeführt werden. Das SDK wartet standardmäßig
-60 Sekunden, Git-Prozesse höchstens 45 Sekunden; ein Timeout belegt
+60 Sekunden, Git-Prozesse höchstens 60 Sekunden; ein Timeout belegt
 nicht, ob Git tatsächlich abgeschlossen wurde.
 
 Bei unklarem Ergebnis vor einem erneuten Commit/Pull/Push den Git-Zustand

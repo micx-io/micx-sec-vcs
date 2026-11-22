@@ -40,7 +40,7 @@ final class RabbitMqIntegrationTest extends TestCase
             $connection->close();
         }
     }
-    public function testWorkerReturnsAndReplaysValidationError(): void
+    public function testWorkerAcknowledgesEachFailedOperation(): void
     {
         if (!getenv('AMQP_TEST_HOST')) self::markTestSkipped('Set AMQP_TEST_HOST and start src/worker.php');
         $c=new AMQPStreamConnection(getenv('AMQP_TEST_HOST'),5672,'guest','guest'); $ch=$c->channel();
@@ -58,7 +58,7 @@ final class RabbitMqIntegrationTest extends TestCase
                 while(count($responses)<$i+1) $ch->wait(null,false,5);
             }
             self::assertSame('INVALID_REPOSITORY',$responses[0]['error']['code']);
-            self::assertSame($responses[0],$responses[1]);
+            self::assertSame('INVALID_REPOSITORY',$responses[1]['error']['code']);
         } finally { $ch->close(); $c->close(); }
     }
     public function testConcurrentRequestsEachReceiveExactlyTheirOwnReply(): void

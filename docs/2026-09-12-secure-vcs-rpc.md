@@ -1,130 +1,135 @@
-# MICX Secure VCS: RPC und Container, Entwurf v1
+# MICX Sec VCS – RPC-Protokoll
 
-| Datum | Benutzername | Kurzbeschreibung |
-|---|---|---|
-| 2026-09-12 | dermatthes | §§ 1–9: Erstentwurf mit Service, SDK, Sicherheitsmodell und Tests |
-| 2026-09-12 | dermatthes | § 5: Supervisor, begrenzter Backoff und aktive Heartbeats ergänzt |
-| 2026-09-13 | dermatthes | §§ 2–5, 7–8: Workspace-API vereinfacht, leeres Repository, eigene Konfliktseite und Timeout-Exception ergänzt |
+> Diese Fassung beschreibt den auf die öffentliche SDK-API reduzierten Worker.
+> Frühere Workspace-IDs, serverseitige Templates und Request-Journale entfallen.
 
-## § 1 Ziel und Komponenten
+## § 1 Ziel
 
-`micx-io/micx-sec-vcs` ist ein PHP-CLI-Worker mit Git und OpenSSH-Client, ohne HTTP-Server oder SSH-Server. Er konsumiert RabbitMQ-Nachrichten und beantwortet Requests. `micx-io/micx-sec-vcs-sdk` stellt `Micx\Vcs\MixVcs` und das austauschbare `RpcTransport`-Interface bereit. Das SDK besitzt keinen SSH-Key. Der konkrete Git-Adapter erweitert `Phore\VCS\Git\GitRepository` aus Composer-Paket `phore/vcs`.
+Ein Worker führt Git-Befehle im Auftrag des SDK über RabbitMQ aus. Der
+Client bestimmt Repository-URL, Branch und relativen Checkout-Pfad vollständig.
+Jeder RPC enthält diese drei Parameter, damit weder eine Workspace-Registry
+noch ein vorbereitender Checkout-/Status-Ping nötig ist.
 
-`phore/message-queue` enthält zum Prüfzeitpunkt lediglich ein Projektgerüst. Deshalb wird keine dort noch nicht vorhandene Connector-API vorausgesetzt. Ein späterer Adapter implementiert `RpcTransport::request(array $request, float $timeout): array`; Fach-API und JSON-Envelope bleiben erhalten.
+## § 2 Volumes und Git-Metadaten
 
-## § 2 Verzeichnisse und Identitäten
+Der Worker besitzt nur den persistenten Daten-Root `VCS_DATA_DIR`
+(Standard: `/data`). Im SDK wird dasselbe Volume unter
+`sharedDirectory` (beispielsweise `/vcs-share`) eingebunden.
+Der Client wählt `directory` relativ zum Volume. Das Standard-Template
+`{repo}/{branch}` wird ausschließlich vom SDK ausgewertet.
 
-| Pfad | Inhalt | Anwendungen dürfen mounten |
-|---|---|---|
-| `/data` | Arbeitsdateien mehrerer Repositories und Branches | Ja, vorzugsweise read-only |
-| `/state` | Private Git-Verzeichnisse, Workspace-Metadaten und Locks | Nein |
-| `/run/micx` | SSH-Key und geprüfte known_hosts, nur im tmpfs | Nein |
+Beispiel: `directory=site/main` bezeichnet im Worker
+`/data/site/main` und in der Anwendung `/vcs-share/site/main`.
+Der Pfad ist ohne RPC bekannt; erst `pull` legt den Checkout an.
 
-Standardlayout: `/data/{repo}/{branch}`. Die URL wird mit Unterstrichen normalisiert; URL und Branch erhalten jeweils einen kurzen SHA-256-Suffix gegen Namenskollisionen. Ein Branch `feature/a` und `feature_a` haben verschiedene Pfade. Der vollständige Workspace-Identifier ist SHA-256 über URL, Branch und optionales Zielverzeichnis. Ein explizites `directory` ist immer relativ zu `/data`; absolute Pfade, `..`, `.git` und überlappende Workspaces werden abgelehnt. `VCS_PATH_TEMPLATE` darf `{repo}`, `{branch}` und `{workspace}` verwenden. Ein einmal registrierter Workspace behält seinen Pfad.
+Git-Daten liegen in `site/main/.git`. Verzeichnissperren liegen im
+gemeinsamen Volume unter `/data/.mix-vcs-locks`; ein privates
+State-Volume, die Workspace-JSON-Registry, Request-Journale und
+`VCS_PATH_TEMPLATE` werden nicht mehr verwendet. Ein vorhandenes
+Checkout wird anhand der URL in `origin` und des aktiven Branches
+geprüft. Pfad-Traversal und Symlinks im Verzeichnis werden abgewiesen.
 
-Temporäre Checkouts bekommen eine zufällige Identität und liegen unter `/data/tmp/{workspace}/...`. `release` entfernt nur temporäre Workspaces; ein Tombstone bleibt zur Absicherung alter Requests erhalten. V1 hat keine automatische TTL-Bereinigung. Ein persistentes RPC-Request-Journal wird nicht geführt. Ein späteres GC benötigt ein ausdrücklich vereinbartes Retry-Zeitfenster.
+Das Shared Volume darf nur vertrauenswürdigen Anwendungen bereitgestellt
+werden, da ihnen jetzt auch die lokalen Git-Metadaten zugänglich sind.
+SSH-Key und `known_hosts` bleiben beim Worker unter `/run/micx`.
 
-Die Default-Branch wird mit `ls-remote --symref HEAD` ermittelt und als `defaultBranch` gespeichert; sie wird beim nächsten Checkout erneut geprüft. Ohne Branch-Angabe wird sie ausgecheckt. `checkout` benötigt einen vorhandenen Remote-HEAD. `create` initialisiert stattdessen ein leeres lokales Repository, ohne Remote-Zugriff; Standardbranch ist `main`. Das Remote wird nicht beim Anbieter angelegt und muss für den späteren Push existieren. [geändert]
+## § 3 RPC-Form
 
-## § 3 RPC-Envelope und Transport
-
-Exchange `micx.vcs.v1`, Typ `topic`, durable; Queue `micx.vcs.v1.requests`, durable; Binding/Routing-Key `rpc.request`. Prefetch ist 1. Requests sind persistent, der Client setzt `correlation_id=id` sowie `reply_to=micx.vcs.reply.<32 Hexzeichen>`. Eine exklusive Reply-Queue wird pro synchronem Aufruf angelegt und danach geschlossen. Der Worker akzeptiert ausschließlich dieses Reply-Präfix und veröffentlicht Antworten über den Default-Exchange. Kein beliebiger Reply-Exchange aus Nutzereingaben.
+RabbitMQ verwendet Exchange `micx.vcs.v1`, Routing-Key
+`rpc.request`, die Queue `micx.vcs.v1.requests` und eine
+korrelierte Reply-Queue.
 
 ```json
 {
   "version": 1,
-  "id": "request-00000001",
-  "method": "checkout",
-  "params": {"url": "git@github.com:example/project.git", "branch": "main"}
-}
-```
-
-```json
-{
-  "version": 1,
-  "id": "request-00000001",
-  "ok": true,
-  "result": {
-    "workspace": "<64 Hexzeichen>",
-    "url": "git@github.com:example/project.git",
+  "id": "request-12345678",
+  "method": "status",
+  "params": {
+    "url": "git@github.com:example/site.git",
     "branch": "main",
-    "defaultBranch": "main",
-    "path": "/data/<URL-Slug_Hash>/<Branch-Slug_Hash>",
-    "temporary": false,
-    "revision": "<Commit-SHA>",
-    "generation": 0
+    "directory": "site/main"
   }
 }
 ```
 
-Fehler: `{"version":1,"id":"request-00000001","ok":false,"error":{"code":"CONFLICT","message":"Workspace changed","details":{"generation":2}}}`. Keine SSH-Keys oder rohe Git-/SSH-Fehlerausgaben werden zurückgeliefert oder protokolliert. Häufige Codes: `INVALID_REQUEST`, `INVALID_PATH`, `INVALID_REPOSITORY`, `CONFLICT`, `BUSY`, `GIT_FAILED`, `PUSH_FAILED`, `MERGE_FAILED`, `TOO_LARGE`, `ID_REUSED`, `OUTCOME_UNKNOWN`, `TIMEOUT`. Das SDK bildet `TIMEOUT` auf `OperationTimeoutException` ab. [geändert]
+Antwort bei Erfolg:
 
-## § 4 Fach-API
+```json
+{
+  "version": 1,
+  "id": "request-12345678",
+  "ok": true,
+  "result": {"hasUnpushedChanges": false}
+}
+```
 
-Alle Workspace-Antworten enthalten `path`; normale Antworten außerdem `revision` und `generation`. Schreiboperationen benötigen keine Zustandsmetadaten. `expectedRevision` und `expectedGeneration` bleiben einzeln optional für Aufrufer, die ausdrücklich eine Vorbedingung prüfen wollen. Der Zähler wird vor Schreibversuchen persistiert und kann auch nach einem Fehler steigen: danach `status` neu abrufen. Er erkennt RPC-Änderungen am noch uncommitteten Arbeitsbaum; externe Dateischreiber müssen sich selbst koordinieren. Vor dem ersten Commit ist `revision` ein leerer String; ohne Vorbedingungen arbeitet jeder Aufruf auf dem Zustand unter der Workspace-Sperre. [geändert]
+Fehler enthalten stattdessen `ok: false` und ein `error`-Objekt mit
+`code`, `message` und `details`. Git-stderr und SSH-Secrets werden
+nicht an Clients durchgereicht.
 
-| Methode | Parameter zusätzlich zu workspace | Wirkung |
+## § 4 Unterstützte Funktionen
+
+| Methode | Zusätzliche Parameter | Ergebnis |
 |---|---|---|
-| `checkout` | url, branch?, directory?, temporary? | Workspace anlegen oder bestehenden unverändert zurückgeben; kein implizites Pull |
-| `create` | url, branch? (= main), directory? | Leeres lokales Repository mit origin anlegen; kein Hosting-Projekt erzeugen |
-| `status` | — | Revision, Zähler, Git-Porcelain-Status (NUL-separiert) |
-| `pull` | — | Fetch und Merge des aktuellen Branches, Konflikte zugunsten der eigenen Seite, sauberer Arbeitsbaum nötig |
-| `commit` | message? (= Update workspace), push? | Alle Arbeitsänderungen stagen, bei Änderungen committen, optional pushen |
-| `push` | branch? | Aktuellen Branch oder benannten lokalen Branch pushen, ohne Force |
-| `branch` | branch | Lokalen Branch bei aktuellem HEAD anlegen; Workspace-Branch bleibt bestehen |
-| `merge` | source | Remote-Branch fetchen und mit eigener Konfliktseite mergen; technische Fehler führen zu Abort-Versuch |
-| `list` | path? | Eine Verzeichnisebene, maximal 1.000 Einträge |
-| `read` | paths[] | Arbeitsdateien als `{path, encoding: "base64", content}` |
-| `update` | files[] | Mehrere Arbeitsdateien setzen; `content:null` löscht eine Datei |
-| `archive` | — | Aktuelles committed HEAD als Base64-ZIP |
-| `snapshot` | — | Reguläre Dateien des committed HEAD als JSON-Objekte, inklusive Git-Dateimodus |
-| `release` | — | Temporären Workspace löschen; keine dauerhaften Checkouts |
+| `ping` | — | `pong`, `ready`, `errors` |
+| `pull` | — | `revision`; erstellt Checkout bei Bedarf |
+| `push` | — | `revision` |
+| `commit` | `message?` | `revision`; erzeugt keinen Leer-Commit |
+| `status` | — | `revision`, `hasUnpushedChanges` |
+| `log` | — | `entries` |
+| `branches` | — | `branches` |
 
-Branch-Workflow: `branch`, anschließend `push(..., branch: 'feature/demo')`, danach `checkout(url, 'feature/demo')` für einen getrennten Arbeitsbaum. Pull und Merge nutzen `-X ours`: überlappende Textänderungen und Binärkonflikte bevorzugen die eigene Seite, konfliktfreie Remote-Änderungen bleiben erhalten. Verbleibende Lösch-/Änderungskonflikte werden anhand der eigenen Index-Seite gelöst; fehlt sie, gewinnt die eigene Löschung. Technische Fehler ergeben `MERGE_FAILED` mit `details.cause`. Ein sauberer Arbeitsbaum ist Voraussetzung. `commit(push:true)` ist keine atomare Transaktion mit dem Remote: `PUSH_FAILED` liefert die vorhandene lokale Revision; nach Prüfung kann `push` separat folgen. [geändert]
+`sync()` ist eine SDK-Operation aus `pull()` und `push()` und kein
+zusätzlicher Worker-RPC. Es gibt keine RPC-Methoden für allgemeine
+Dateizugriffe, Archivexport, Branch-Erstellung, Merge oder Release.
 
-Dateiinhalte werden immer Base64-kodiert, auch bei Text, damit binäre Dateien funktionieren. Eine Update-Liste wird vollständig validiert; einzelne Dateiersetzungen erfolgen atomar per Rename. Die gesamte Liste ist bei I/O-Fehler oder Absturz nicht transaktional. Nach solchen Fehlern `status`/`read` prüfen. Das ist ausdrücklich keine Garantie, dass jede Datei gemeinsam übernommen wurde.
+`pull` erwartet bei bestehendem Checkout einen sauberen Git-Worktree.
+Bei Merge-Konflikten wird die lokale Seite bevorzugt; andere
+Merge-Fehler werden gemeldet. Push erfolgt ohne Force.
 
-Maximal 4 MiB JSON pro RPC, maximal 2 MiB Rohdaten bei Datei-/ZIP-Export und maximal 100 Dateien pro Read/Update/Snapshot. Größere Übertragungen benötigen in einer Folgeversion Chunking; heute werden sie mit `TOO_LARGE` abgelehnt. ZIP enthält committed HEAD, keine uncommitteten Änderungen. Snapshot überspringt Symlinks und Submodule; ZIP kann Symlinks enthalten und darf clientseitig nur mit einem sicheren ZIP-Extractor entpackt werden.
+## § 5 Fehlgeschlagene Aufträge und Wiederholungen
 
-Es gibt keine Shell- oder Raw-Git-RPC-Methode. Weitere Git-Funktionen werden als typisierte Operationen ergänzt. Das ist die Sicherheitsgrenze für konfigurationsverändernde Git-Befehle, Hook-Ausführung und Remote-Helper.
+Normale Validierungs- und Git-Fehler werden als RPC-Fehlerantwort gesendet.
+Sobald deren Publikation bestätigt ist, bestätigt der Worker die
+eingegangene Nachricht per `ack` – **auch bei einem Git-Fehler**.
+Ungültige Queue-Nachrichten werden mit `reject(requeue=false)` verworfen.
+Fehlgeschlagene Git-Operationen bleiben deshalb nicht in einer
+automatischen Wiederholungsschleife und blockieren die Queue nicht.
 
-## § 5 Parallelität, Wiederholungen und Abstürze
+Es gibt **kein persistentes Request-Journal und keine Deduplizierung
+über Request-IDs**. Bricht die Brokerverbindung oder der Worker vor
+dem Request-`ack` ab, ist erneute Zustellung möglich. Die Operation
+kann dann erneut ausgeführt werden. Das SDK wartet standardmäßig
+60 Sekunden, Git-Prozesse höchstens 45 Sekunden; ein Timeout belegt
+nicht, ob Git tatsächlich abgeschlossen wurde.
 
-Alle Worker konsumieren dieselbe Queue und teilen **beide** Volumes `/data` und `/state`. Ein Workspace wird durch `flock` serialisiert, verschiedene Workspaces können parallel arbeiten. Checkout-Registrierung ist global gesperrt. Das Dateisystem muss für alle beteiligten Worker verlässliche POSIX-Locks und atomare Renames bieten. Unterstützter erster Betrieb: mehrere Container auf demselben Docker-Host. Getrennte Datenvolumes oder ungeprüfte NFS-Lock-Semantik sind kein unterstützter Clusterbetrieb; dafür sind ein verteiltes Lock-Backend und Routing nach Storage-Pool nötig.
+Bei unklarem Ergebnis vor einem erneuten Commit/Pull/Push den Git-Zustand
+abgleichen. Die Sperren unter `/data/.mix-vcs-locks` serialisieren
+gleichzeitige Operationen auf demselben Zielverzeichnis zwischen
+Worker-Instanzen mit gemeinsamem Volume und verlässlichem `flock`.
 
-Es wird kein persistentes Request-Journal geführt. Auch eine identische Request-ID verhindert keine erneute Ausführung. Normale Git- und Validierungsfehler werden als RPC-Fehlerantwort zurückgegeben. Bei bestätigter Antwort bestätigt der Worker auch fehlgeschlagene Aufträge per `ack`; ungültige Queue-Nachrichten werden ohne Requeue verworfen. Nur bei Verbindungsabbruch oder Prozessausfall vor `ack` kann RabbitMQ einen Request erneut zustellen. Nach einem unklaren Schreib-Timeout den Git-Zustand prüfen.
+## § 6 Sicherheit und Betrieb
 
-Der Worker bestätigt einen Request nach bestätigter Antwortpublikation. Ein verlorenes Reply wird nicht persistiert; ein erneuter Request mit derselben ID wird erneut ausgeführt. Ein Client-Timeout bricht Git nicht ab. Die Anwendung muss bei unklarem Ergebnis zuerst den Git-/Workspace-Zustand prüfen; `OperationTimeoutException::$request` liefert dafür den ursprünglichen Request. [geändert]
+Nur validierte Git-SCP-URLs `git@host:owner/repository.git` sind
+derzeit für den Worker erlaubt. Der Worker erzeugt keinen beliebigen
+Shell-Befehl. SSH nutzt `StrictHostKeyChecking=yes` und die
+konfigurierten Secrets; Git-Hooks und Submodule werden deaktiviert.
 
-Einzelne Git-Prozesse haben 45 Sekunden Laufzeitlimit (`TIMEOUT`); SDK-Wartezeit standardmäßig 60 Sekunden, konfigurierbar als endlicher Wert > 0 bis 300 Sekunden. SDK-Wartezeitüberschreitungen werfen `OperationTimeoutException`; das gilt auch für unmittelbar zurückgegebene `TIMEOUT`-Fehler. Bei zusammengesetztem Commit/Push oder Merge bleibt der äußere Fehlercode mit Ursache erhalten. Verbindungs- und Kanalaufbau unterliegen zusätzlich den Zeitgrenzen der übergebenen AMQP-Verbindung. Mehrschrittige Operationen können länger als 60 Sekunden brauchen. Der Worker verwendet AMQP-Heartbeats mit 60 Sekunden und einem PCNTL-Signal-Sender auch während blockierender Git-Arbeit. Ein Supervisor bleibt bei Brokerfehlern im Container aktiv und startet genau einen Worker nach 1, 2, 4, 8, 16 und maximal 30 Sekunden Pause neu; nach mindestens 60 Sekunden Prozesslaufzeit wird der Backoff zurückgesetzt. Sichere Fehlerkategorien und nächste Versuche stehen im Container-Log. Weitere Worker werden über Container-Replikate skaliert; siehe [separater Skalierungsvorschlag](2026-09-12-worker-scaling.md). [geändert]
+Der Container läuft unter UID/GID 10001, mit read-only
+Root-Dateisystem, ohne veröffentlichte Ports und ohne Linux-Capabilities.
+Ein Supervisor startet einen abgebrochenen Worker erneut.
+Container- und Broker-Replikate benötigen einen gemeinsamen
+Daten-Mount mit verlässlichen Locks.
 
-## § 6 Sicherheit und Betriebsgrenzen
+## § 7 Prüfungen
 
-Docker läuft als UID/GID 10001, mit read-only Root-Dateisystem, entfernten Linux-Capabilities, `no-new-privileges`, begrenzten Prozessen und Speicher. Es werden keine Ports veröffentlicht. Nur RabbitMQ-RPC ist eingehend erreichbar; der Worker benötigt ausgehend DNS/SSH zu den Git-Hosts. Der Broker liegt im internen Docker-Netz. Anwendungen, die dort Zugang erhalten, dürfen mit den Berechtigungen des hinterlegten Keys Git-Operationen auslösen; v1 bietet keine Mandantentrennung oder Repository-ACL innerhalb dieses Vertrauensbereichs.
+Die CI prüft Syntax, PHPUnit einschließlich lokaler Git-Operationen,
+RabbitMQ-Integration mit zwei Workern und Docker-Build.
+Ein echter Git-SSH-Remote muss für eine produktive Freigabe separat
+validiert werden.
 
-Secret-Datei bevorzugt: Der Key wird zur Laufzeit in `/run/micx/id_key` mit 0600 kopiert. Alternativ `VCS_SSH_KEY`; Environment-Secrets bleiben über Container-Verwaltung/Inspect potenziell sichtbar, auch wenn die Variable vor PHP-Start entfernt wird. Keys nie in Image-Layer, Git, Queue oder `/data` speichern. Ein zusätzliches `known_hosts` ist für authentifizierte SSH-Gegenstellen nötig: Host-Fingerprints außerhalb der Verbindung prüfen. Der alte Phore-SSH-Adapter mit `StrictHostKeyChecking=no` wird bewusst nicht verwendet.
+## § 8 Referenzen
 
-Nur validierte SCP-SSH-URLs `git@host:owner/repository.git` werden akzeptiert. HTTPS, file://, freie SSH-Optionen, Submodule und benutzerdefinierte Git-Remote-Helper sind deaktiviert. Git-Aufrufe nutzen Argumentlisten statt Shell-Interpolation. Git-Hooks, fsmonitor, globale/System-Konfiguration und interaktive Passworteingaben sind deaktiviert; alle Git-Metadaten liegen privat unter `/state`.
-
-Shared-Volume-Modus ist für **vertrauenswürdige** Dateischreiber. RPC-Locks sperren keine externen Dateizugriffe, und Pfadprüfungen bieten gegenüber einem bösartigen gleichzeitigen Schreiber keine vollständige TOCTOU-Abwehr. Für gegeneinander isolierte Anwendungen `/data` nicht schreibbar teilen und ausschließlich RPC-Dateioperationen benutzen. Repositories werden niemals als PHP oder Composer-Projekt ausgeführt. Ressourcenlimits ersetzen keine Größenquote für Fetch-Objekte und Arbeitsdateien; passende Volume-/Host-Quoten sind Teil des Betriebs.
-
-RabbitMQ verwendet intern Standardwerte `micx`/`micx`, Port 5672, VHost `/`, ohne TLS. Es gibt keine zusätzliche RPC-Authentifizierung. RabbitMQ selbst benötigt Zugangsdaten; diese Defaults vermeiden individuelle App-Konfiguration im isolierten Compose-Netz. Außerhalb dieses Netzes separate Broker-Zugangsdaten und einen gesicherten Transportadapter verwenden.
-
-## § 7 Start und SDK-Beispiel
-
-Siehe [README](../README.md) für Compose. Andere Services hängen am `rpc`-Netz und mounten bei Bedarf dasselbe `data`-Volume unter `/data`. `/state` und Secrets werden nicht weitergereicht.
-
-Der vollständige Einstieg mit Verbindung, Checkout, Arbeitsdateien, Commit und Push steht in [SDK workflow.php](https://github.com/micx-io/micx-sec-vcs-sdk/blob/feat/secure-vcs-rpc/examples/workflow.php). Die Folgebeispiele zeigen [Neuanlage und Pfad](https://github.com/micx-io/micx-sec-vcs-sdk/blob/feat/secure-vcs-rpc/examples/02-create-repository.php), [Konflikte](https://github.com/micx-io/micx-sec-vcs-sdk/blob/feat/secure-vcs-rpc/examples/03-conflicts.php) und [Timeout/Wiederaufnahme](https://github.com/micx-io/micx-sec-vcs-sdk/blob/feat/secure-vcs-rpc/examples/04-timeout.php). Ein Transportwechsel ändert nur die Konstruktion des `RpcTransport`. [geändert]
-
-## § 8 Implementierung und Validierung
-
-`Storage` validiert Namen, trennt Pfade und verwaltet Workspace-Locks und Metadaten. `SecureGit` implementiert die sichere Phore-Git-Ausführung. `Service` bildet Methoden auf Git- und Dateioperationen ab. `Dispatcher` validiert RPC-Nachrichten und erzeugt Antworten. `worker.php` bindet RabbitMQ an. Im SDK bleiben `MixVcs`, `RpcException`, `RpcTransport` und `RabbitMqTransport` sowie `OperationTimeoutException` unabhängig vom Service-Quellcode. [geändert]
-
-Tests prüfen Pfad-/URL-Angriffe, Slug-Kollisionen, Symlinks, erneut ausgeführte Requests, SDK-Korrelation, reale lokale Git-Commits und ZIP-Ausgabe. CI führt Composer, PHP-Lint, PHPUnit und den Container-Build aus. Der erste Entwurf ist vor produktiver Freigabe zusätzlich mit einem eigenen SSH-Test-Remote, Broker-Ausfällen und dem konkreten Shared-Storage zu prüfen. Ein erfolgreicher Unit-Test ist keine Bestätigung dieser noch notwendigen Betriebsprüfung.
-
-## § 9 Referenzen
-
-- [RabbitMQ PHP RPC](https://www.rabbitmq.com/tutorials/tutorial-six-php): correlation_id, Reply-Queues, doppelte Zustellungen.
-- [RabbitMQ Confirms](https://www.rabbitmq.com/docs/confirms): Publisher-Confirms und Consumer-Acknowledgements.
-- [Git-Konfiguration](https://git-scm.com/docs/git-config): Hooks, Protokolle und SSH-Konfiguration.
-- [Phore VCS](https://github.com/phore/phore-vcs): tatsächlich verwendete Abstraktion; gehärteter Adapter im Service.
+- [SDK](https://github.com/micx-io/micx-sec-vcs-sdk)
+- [RabbitMQ Consumer Acknowledgements](https://www.rabbitmq.com/docs/confirms)
+- [Git-Konfiguration](https://git-scm.com/docs/git-config)

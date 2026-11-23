@@ -167,6 +167,7 @@ final class Service
         $items = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::SELF_FIRST,
+            \RecursiveIteratorIterator::CATCH_GET_CHILD,
         );
         foreach ($items as $item) {
             if ($item->isLink()) {

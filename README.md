@@ -48,9 +48,11 @@ Der Worker ändert weder Eigentümer noch Dateiberechtigungen im gemeinsamen
 Volume. Vor Git-Operationen auf bestehenden Checkouts sowie nach dem ersten
 Checkout und einem erfolgreichen `pull` prüft er, ob sein Prozess die
 Verzeichnisse lesen, beschreiben und betreten sowie reguläre Dateien lesen und
-beschreiben kann. Bei unzureichenden Rechten meldet er einen `IO_ERROR` mit
-dem betroffenen Dateipfad beziehungsweise Verzeichnispfad. Symlinks werden
-nicht verfolgt.
+beschreiben kann. Dateien unter `.git/objects/` müssen nur lesbar sein:
+Git speichert unveränderliche Objekte üblicherweise schreibgeschützt, etwa
+mit `0444`. Bei unzureichenden Rechten meldet der Worker einen `IO_ERROR`
+mit dem betroffenen Dateipfad beziehungsweise Verzeichnispfad. Symlinks
+werden nicht verfolgt.
 
 Der Worker läuft standardmäßig als UID/GID `10001:10001` und verwendet
 `umask 0000` für Git-Operationen. Neue Checkouts werden dadurch im

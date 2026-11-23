@@ -52,9 +52,25 @@ beschreiben kann. Bei unzureichenden Rechten meldet er einen `IO_ERROR` mit
 dem betroffenen Dateipfad beziehungsweise Verzeichnispfad. Symlinks werden
 nicht verfolgt.
 
-Die anderen Container müssen daher selbst für passende Berechtigungen sorgen.
-Der Worker läuft standardmäßig als UID/GID `10001:10001`. Der private
-Lock-Ordner `.mix-vcs-locks` ist von der Checkout-Prüfung ausgenommen.
+Der Worker läuft standardmäßig als UID/GID `10001:10001` und verwendet
+`umask 0000` für Git-Operationen. Neue Checkouts werden dadurch im
+Normalfall für alle Benutzer lesbar und beschreibbar angelegt:
+reguläre Dateien mit `0666`, Verzeichnisse mit `0777` und ausführbare
+Dateien mit `0777`. Programme (einschließlich Git) können für einzelne
+Dateien oder Metadaten ausdrücklich restriktivere Modi vorgeben; die
+`umask` garantiert daher nicht für jeden Pfad diese Berechtigungen.
+
+Andere Container und Prozesse, die in dieses Volume schreiben, müssen
+ebenfalls auf world-readable und world-writable Berechtigungen achten.
+Dafür sollte der jeweilige Schreibprozess `umask 0000` verwenden, damit
+neu angelegte Dateien normalerweise `0666` und Verzeichnisse `0777`
+erhalten. Eine abweichende `umask` (etwa `0022` oder `0007`) kann dazu
+führen, dass der VCS-Worker neue oder geänderte Dateien nicht mehr
+beschreiben kann. Die `umask` ändert bestehende Berechtigungen nicht.
+
+Der private Lock-Ordner `.mix-vcs-locks` ist von der Checkout-Prüfung
+ausgenommen. Die SSH-Schlüssel werden getrennt mit restriktiven Rechten
+(`0600`) angelegt.
 
 ### Temporäre SSH-Host-Keys
 

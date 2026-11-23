@@ -178,8 +178,12 @@ final class Service
                 if (!is_readable($path) || !is_writable($path) || !is_executable($path)) {
                     throw new Fault('IO_ERROR', 'Insufficient directory permissions: ' . $path);
                 }
-            } elseif ($item->isFile() && (!is_readable($path) || !is_writable($path))) {
-                throw new Fault('IO_ERROR', 'Insufficient file permissions: ' . $path);
+            } elseif ($item->isFile()) {
+                // Git objects are immutable and intentionally often read-only (0444).
+                $isGitObject = str_starts_with($path, $directory . '/.git/objects/');
+                if (!is_readable($path) || (!$isGitObject && !is_writable($path))) {
+                    throw new Fault('IO_ERROR', 'Insufficient file permissions: ' . $path);
+                }
             }
         }
     }

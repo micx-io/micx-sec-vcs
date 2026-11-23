@@ -53,6 +53,9 @@ final class Service
             }
 
             $exists = is_file($gitDirectory . '/HEAD');
+            if ($exists) {
+                $this->assertCheckoutPermissions($directory);
+            }
             if (!$exists && $method !== 'pull') {
                 throw new Fault('NOT_FOUND', 'Repository not checked out; pull first');
             }
@@ -75,7 +78,7 @@ final class Service
                 // Fehlschläge beim ersten Fetch dürfen keinen ungültigen Checkout zurücklassen.
                 try {
                     $git->initialize($branch);
-                    $this->makeCheckoutWorldWritable($directory);
+                    $this->assertCheckoutPermissions($directory);
                 } catch (\Throwable $e) {
                     $this->removeDirectory($directory);
                     throw $e;
@@ -95,7 +98,7 @@ final class Service
                         throw new Fault('DIRTY_WORKTREE', 'Commit changes before pull');
                     }
                     $git->pull();
-                    $this->makeCheckoutWorldWritable($directory);
+                    $this->assertCheckoutPermissions($directory);
                     break;
 
                 case 'push':
@@ -143,17 +146,17 @@ final class Service
     }
 
     /**
-     * Make a checkout shared-volume accessible after Git has changed its files.
-     * Directories get 0777; files get 0666 while preserving existing executable bits.
-     * Symlinks are never followed or chmodded.
+     * Check access needed by the worker without changing ownership or modes.
+     * Symlinks are not followed. Report the first inaccessible path to the client.
      */
-    private function makeCheckoutWorldWritable(string $directory): void
+    private function assertCheckoutPermissions(string $directory): void
     {
-        // Parent directories must be traversable by other container users, too.
+        // Git must be able to traverse and create files in every checkout parent.
         $parent = $directory;
         while (true) {
-            if (is_link($parent) || !is_dir($parent) || !chmod($parent, 0777)) {
-                throw new Fault('IO_ERROR', 'Cannot set shared checkout directory permissions');
+            if (is_link($parent) || !is_dir($parent)
+                || !is_readable($parent) || !is_writable($parent) || !is_executable($parent)) {
+                throw new Fault('IO_ERROR', 'Insufficient directory permissions: ' . $parent);
             }
             if ($parent === $this->storage->data) {
                 break;
@@ -164,6 +167,7 @@ final class Service
         $items = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::SELF_FIRST,
+            \RecursiveIteratorIterator::CATCH_GET_CHILD,
         );
         foreach ($items as $item) {
             if ($item->isLink()) {
@@ -171,14 +175,11 @@ final class Service
             }
             $path = $item->getPathname();
             if ($item->isDir()) {
-                $mode = 0777;
-            } elseif ($item->isFile()) {
-                $mode = (($item->getPerms() & 0111) !== 0) ? 0777 : 0666;
-            } else {
-                continue;
-            }
-            if (!chmod($path, $mode)) {
-                throw new Fault('IO_ERROR', 'Cannot set shared checkout file permissions');
+                if (!is_readable($path) || !is_writable($path) || !is_executable($path)) {
+                    throw new Fault('IO_ERROR', 'Insufficient directory permissions: ' . $path);
+                }
+            } elseif ($item->isFile() && (!is_readable($path) || !is_writable($path))) {
+                throw new Fault('IO_ERROR', 'Insufficient file permissions: ' . $path);
             }
         }
     }

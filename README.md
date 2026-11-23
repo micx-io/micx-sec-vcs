@@ -44,19 +44,33 @@ müssen URL-encoded sein. `amqps://` wird derzeit nicht unterstützt.
 
 ### Berechtigungen der Checkouts
 
-Nach jedem erfolgreichen ersten Checkout und jedem späteren `pull` setzt der
-Worker Verzeichnisse einschließlich `.git` auf `0777` und reguläre Dateien
-auf `0666`. Bereits ausführbare Dateien bleiben ausführbar (`0777`).
-Auch die übergeordneten Verzeichnisse bis einschließlich `VCS_DATA_DIR`
-werden auf `0777` gesetzt, damit andere Container-Benutzer den Checkout
-erreichen können. Symlinks werden dabei nicht verfolgt.
+Der Worker ändert weder Eigentümer noch Dateiberechtigungen im gemeinsamen
+Volume. Vor Git-Operationen auf bestehenden Checkouts sowie nach dem ersten
+Checkout und einem erfolgreichen `pull` prüft er, ob sein Prozess die
+Verzeichnisse lesen, beschreiben und betreten sowie reguläre Dateien lesen und
+beschreiben kann. Bei unzureichenden Rechten meldet er einen `IO_ERROR` mit
+dem betroffenen Dateipfad beziehungsweise Verzeichnispfad. Symlinks werden
+nicht verfolgt.
 
-**Sicherheit:** Das gemeinsame Daten-Volume darf nur vertrauenswürdigen
-Containern zugänglich sein: Andere Benutzer können sowohl Arbeitsdateien
-als auch Git-Metadaten verändern. Neu angelegte oder von externen
-Prozessen geänderte Dateien werden erst beim nächsten erfolgreichen
-`pull` erneut angepasst. Der private Lock-Ordner `.mix-vcs-locks` bleibt
-von dieser Anpassung ausgenommen.
+Der Worker läuft standardmäßig als UID/GID `10001:10001` und verwendet
+`umask 0000` für Git-Operationen. Neue Checkouts werden dadurch im
+Normalfall für alle Benutzer lesbar und beschreibbar angelegt:
+reguläre Dateien mit `0666`, Verzeichnisse mit `0777` und ausführbare
+Dateien mit `0777`. Programme (einschließlich Git) können für einzelne
+Dateien oder Metadaten ausdrücklich restriktivere Modi vorgeben; die
+`umask` garantiert daher nicht für jeden Pfad diese Berechtigungen.
+
+Andere Container und Prozesse, die in dieses Volume schreiben, müssen
+ebenfalls auf world-readable und world-writable Berechtigungen achten.
+Dafür sollte der jeweilige Schreibprozess `umask 0000` verwenden, damit
+neu angelegte Dateien normalerweise `0666` und Verzeichnisse `0777`
+erhalten. Eine abweichende `umask` (etwa `0022` oder `0007`) kann dazu
+führen, dass der VCS-Worker neue oder geänderte Dateien nicht mehr
+beschreiben kann. Die `umask` ändert bestehende Berechtigungen nicht.
+
+Der private Lock-Ordner `.mix-vcs-locks` ist von der Checkout-Prüfung
+ausgenommen. Die SSH-Schlüssel werden getrennt mit restriktiven Rechten
+(`0600`) angelegt.
 
 ### Temporäre SSH-Host-Keys
 

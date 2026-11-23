@@ -21,7 +21,7 @@ $stopping=false;
 pcntl_async_signals(true);
 pcntl_signal(SIGTERM,static function () use (&$stopping) { $stopping=true; });
 pcntl_signal(SIGINT,static function () use (&$stopping) { $stopping=true; });
-umask(0007);
+umask(0000);
 $storage=new Storage(getenv('VCS_DATA_DIR') ?: '/data');
 $service=new Service($storage,'/run/micx/id_key','/run/micx/known_hosts');
 $dispatcher=new Dispatcher($service->execute(...));

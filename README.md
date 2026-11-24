@@ -89,7 +89,7 @@ composer require micx/sec-vcs-client
 ```
 
 ```php
-use Micx\\Vcs\\MixSecVcsClient;
+use Micx\Vcs\MixSecVcsClient;
 
 $client = new MixSecVcsClient(
     sharedDirectory: '/vcs-share',

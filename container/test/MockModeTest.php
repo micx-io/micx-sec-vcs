@@ -12,6 +12,7 @@ final class MockModeTest extends TestCase
     public function testSimulatesRequestsWithoutGitAndPreservesWorkspace(): void
     {
         $base = sys_get_temp_dir() . '/micx-mock-' . bin2hex(random_bytes(8));
+        mkdir($base, 0770, true);
         $service = new Service(new Storage($base), $base . '/missing-key', $base . '/missing-hosts', true);
         $dispatcher = new Dispatcher($service->execute(...), true);
         $params = ['url' => 'git@example.test:org/repo.git', 'branch' => 'main', 'directory' => 'repo/main'];

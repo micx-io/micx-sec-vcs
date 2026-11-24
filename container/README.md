@@ -48,13 +48,25 @@ nicht ändern. `ping` bleibt eine reine Erreichbarkeitsprüfung.
 |---|---|---|
 | `CONF_AMQ_CONNECTION` | `rabbitmq://micx:change-me@rabbitmq:5672/` | Einzige RabbitMQ-Verbindungskonfiguration |
 | `VCS_SSH_KEY_FILE` | `/run/secrets/vcs_ssh_key` | Pfad zum Docker-SSH-Secret |
-| `VCS_DATA_DIR` | `/data` (Standard) | Gemeinsames Checkout-Volume |
+| `CONF_DATA_DIR` | `/data` (Beispiel; verpflichtend) | Extern gemountetes, bereits vorhandenes Checkout-Verzeichnis |
 | `CONF_VCS_MOCK_MODE` | `false` oder `true` | Git-freier serverseitiger Testbetrieb |
 
 Die Connection-URI akzeptiert `rabbitmq://` und `amqp://`. Der Pfad
 steht für den **RabbitMQ-VHost** (Standard `/`), nicht für den
 RPC-Exchange `micx.vcs.v1`. Sonderzeichen in Credentials und VHost
 müssen URL-encoded sein. `amqps://` wird derzeit nicht unterstützt.
+
+### Startup und Volume-Mount
+
+Das Image enthält kein `/data` und legt den Daten-Root nicht an.
+`CONF_DATA_DIR` muss beim Start gesetzt sein und auf ein bereits
+vorhandenes, von außen gemountetes Verzeichnis zeigen. Der Entrypoint
+prüft Existenz sowie Lese-, Schreib- und Betretungsrechte; fehlt der
+Pfad oder die Variable, endet der Container mit einer Fehlermeldung,
+bevor der Worker beziehungsweise RabbitMQ gestartet wird. Für den
+Mount muss UID/GID `10001:10001` Zugriff haben. Unterhalb des
+bereitgestellten Daten-Roots kann der Worker sein internes
+`.mix-vcs-locks`-Verzeichnis anlegen.
 
 ### Berechtigungen der Checkouts
 

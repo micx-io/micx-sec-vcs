@@ -22,7 +22,12 @@ pcntl_async_signals(true);
 pcntl_signal(SIGTERM,static function () use (&$stopping) { $stopping=true; });
 pcntl_signal(SIGINT,static function () use (&$stopping) { $stopping=true; });
 umask(0000);
-$storage=new Storage(getenv('VCS_DATA_DIR') ?: '/data');
+$dataDir = getenv('CONF_DATA_DIR');
+if (!is_string($dataDir) || $dataDir === '') {
+    fwrite(STDERR, "CONF_DATA_DIR_MISSING: set CONF_DATA_DIR to an existing mounted directory\n");
+    exit(1);
+}
+$storage = new Storage($dataDir);
 // Server-only setting: request parameters cannot enable mock mode.
 $mockSetting = strtolower(trim(getenv('CONF_VCS_MOCK_MODE') ?: 'false'));
 if (!in_array($mockSetting, ['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'], true)) {

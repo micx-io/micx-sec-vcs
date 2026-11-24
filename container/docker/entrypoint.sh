@@ -1,6 +1,25 @@
 #!/bin/sh
 set -eu
 umask 077
+
+# Das Datenvolume muss extern bereitgestellt werden; niemals hier erzeugen.
+if [ -z "${CONF_DATA_DIR:-}" ]; then
+    echo 'CONF_DATA_DIR_MISSING: set CONF_DATA_DIR to an existing externally mounted directory' >&2
+    exit 1
+fi
+case "$CONF_DATA_DIR" in
+    /*) ;;
+    *) echo "CONF_DATA_DIR_INVALID: directory must be absolute: $CONF_DATA_DIR" >&2; exit 1 ;;
+esac
+if [ ! -d "$CONF_DATA_DIR" ] || [ -L "$CONF_DATA_DIR" ]; then
+    echo "CONF_DATA_DIR_NOT_FOUND: configured data directory does not exist or is a symlink: $CONF_DATA_DIR" >&2
+    exit 1
+fi
+if [ ! -r "$CONF_DATA_DIR" ] || [ ! -w "$CONF_DATA_DIR" ] || [ ! -x "$CONF_DATA_DIR" ]; then
+    echo "CONF_DATA_DIR_ACCESS_DENIED: worker cannot access data directory: $CONF_DATA_DIR" >&2
+    exit 1
+fi
+
 mkdir -p /run/micx
 
 # Fehlende Credentials verhindern nur Git-Zugriffe, nicht den RPC-Ping.

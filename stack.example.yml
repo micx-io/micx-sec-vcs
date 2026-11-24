@@ -25,6 +25,7 @@ services:
     environment:
       CONF_AMQ_CONNECTION: rabbitmq://micx:change-me@rabbitmq:5672/
       CONF_VCS_MOCK_MODE: "false"
+      CONF_DATA_DIR: /data
       VCS_SSH_KEY_FILE: /run/secrets/vcs_ssh_key
     secrets:
       - vcs_ssh_key

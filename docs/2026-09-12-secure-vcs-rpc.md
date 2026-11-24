@@ -12,7 +12,7 @@ noch ein vorbereitender Checkout-/Status-Ping nötig ist.
 
 ## § 2 Volumes und Git-Metadaten
 
-Der Worker besitzt nur den persistenten Daten-Root `VCS_DATA_DIR`
+Der Worker besitzt nur den extern gemounteten Daten-Root `CONF_DATA_DIR`
 (Standard: `/data`). Im SDK wird dasselbe Volume unter
 `sharedDirectory` (beispielsweise `/vcs-share`) eingebunden.
 Der Client wählt `directory` relativ zum Volume. Das Standard-Template

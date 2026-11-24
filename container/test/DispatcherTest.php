@@ -13,6 +13,7 @@ final class DispatcherTest extends TestCase
     public function testPingReportsMissingSshWithoutStartingRepositoryWork(): void
     {
         $base = sys_get_temp_dir() . '/micx-ping-' . bin2hex(random_bytes(8));
+        mkdir($base . '/data', 0770, true);
         $storage = new Storage($base . '/data');
         $service = new Service($storage, $base . '/key', $base . '/known_hosts');
         $dispatcher = new Dispatcher($service->execute(...));

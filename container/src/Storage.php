@@ -12,8 +12,8 @@ final class Storage
         if ($data === '' || $data[0] !== '/') {
             throw new \RuntimeException('Data root must be an absolute path');
         }
-        if (!is_dir($data) && !mkdir($data, 0770, true)) {
-            throw new \RuntimeException('Cannot create data root');
+        if (!is_dir($data)) {
+            throw new \RuntimeException('Configured data directory does not exist: ' . $data);
         }
         if (is_link($data) || realpath($data) !== $data) {
             throw new \RuntimeException('Data root must be a canonical absolute path');

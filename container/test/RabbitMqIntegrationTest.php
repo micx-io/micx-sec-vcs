@@ -94,8 +94,8 @@ final class RabbitMqIntegrationTest extends TestCase
             self::markTestSkipped('Requires running worker and broker');
         }
 
-        // Worker und PHPUnit teilen das VCS_DATA_DIR-Volume.
-        $root = getenv('VCS_DATA_DIR') ?: '/data';
+        // Worker und PHPUnit teilen das CONF_DATA_DIR-Volume.
+        $root = getenv('CONF_DATA_DIR') ?: '/data';
         $unique = bin2hex(random_bytes(8));
         $relative = 'rpc-fixture-' . $unique . '/main';
         $directory = $root . '/' . $relative;

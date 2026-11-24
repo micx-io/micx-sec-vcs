@@ -29,7 +29,8 @@ jobs:
           AMQP_TEST_HOST: 127.0.0.1
           CONF_AMQ_CONNECTION: rabbitmq://guest:guest@127.0.0.1:5672/
         run: |
-          export VCS_DATA_DIR="$RUNNER_TEMP/micx-data"
+          export CONF_DATA_DIR="$RUNNER_TEMP/micx-data"
+          mkdir -p "$CONF_DATA_DIR"
           broker_id='${{ job.services.rabbitmq.id }}'
           docker exec "$broker_id" rabbitmqctl stop_app
           sh container/docker/supervisor.sh php container/src/worker.php >> "$RUNNER_TEMP/worker.log" 2>&1 &

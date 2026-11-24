@@ -7,6 +7,7 @@ final class ConcurrencyTest extends TestCase
     public function testConcurrentRequestsWithSameIdBothExecute(): void
     {
         $base=sys_get_temp_dir().'/micx-concurrent-'.bin2hex(random_bytes(8));
+        mkdir($base.'/data', 0770, true);
         new Storage($base.'/data');
         $code= <<<'CHILD'
 require $argv[1];
@@ -31,6 +32,7 @@ CHILD;
     public function testSameWorkspaceWaitsWhileOtherWorkspaceCanRun(): void
     {
         $base=sys_get_temp_dir().'/micx-locks-'.bin2hex(random_bytes(8));
+        mkdir($base.'/data', 0770, true);
         $s=new Storage($base.'/data');
         $code= <<<'CHILD'
 require $argv[1];

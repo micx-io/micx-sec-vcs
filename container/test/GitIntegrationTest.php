@@ -23,6 +23,7 @@ final class GitIntegrationTest extends TestCase
     public function testCommitUsesRpcAuthorAndKeepsDefaultForFollowingCommit(): void
     {
         $base = sys_get_temp_dir() . '/micx-author-' . bin2hex(random_bytes(8));
+        mkdir($base . '/data', 0770, true);
         $storage = new \Micx\SecVcs\Storage($base . '/data');
         $directory = $base . '/data/author/main';
         mkdir($directory, 0770, true);
@@ -61,6 +62,7 @@ final class GitIntegrationTest extends TestCase
     public function testSdkMethodsUseClientDirectoryWithoutWorkspaceRegistry(): void
     {
         $base = sys_get_temp_dir() . '/micx-service-' . bin2hex(random_bytes(8));
+        mkdir($base . '/data', 0770, true);
         $storage = new \Micx\SecVcs\Storage($base . '/data');
         $directory = $base . '/data/repo/main';
         mkdir($directory, 0770, true);

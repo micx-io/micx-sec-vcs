@@ -104,7 +104,13 @@ Er unterscheidet sich von den lokalen Client-Mocks mit `VcsMockRepository`.
 | Worker-Variable | Standard | Beschreibung |
 |---|---|---|
 | `CONF_VCS_MOCK_MODE` | `false` | Bei `true` keine Git-Ausführung; nur Tests |
-| `VCS_DATA_DIR` | `/data` | Shared Checkout-Volume |
+| `CONF_DATA_DIR` | erforderlich, z. B. `/data` | Bereits vorhandenes, extern gemountetes Checkout-Volume |
 | `CONF_AMQ_CONNECTION` | `rabbitmq://micx:micx@rabbitmq:5672/` | RabbitMQ-URI |
+
+Das Container-Image enthält kein Datenverzeichnis. `CONF_DATA_DIR` muss
+auf einen vorhandenen externen Mount zeigen. Fehlt die Variable oder das
+Verzeichnis beim Start, bricht der Worker mit einer klaren Fehlermeldung ab.
+Er legt den Daten-Root nicht selbst an. Der externe Mount muss für UID
+`10001` lesbar, beschreibbar und betretbar sein.
 
 [Container-Dokumentation](container/README.md).

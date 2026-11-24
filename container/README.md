@@ -68,6 +68,18 @@ Mount muss UID/GID `10001:10001` Zugriff haben. Unterhalb des
 bereitgestellten Daten-Roots kann der Worker sein internes
 `.mix-vcs-locks`-Verzeichnis anlegen.
 
+### Herkunft von vorhandenen /data-Inhalten
+
+Das Image erstellt weder `/data` noch `/data/state` oder
+`/data/workspaces`. Der Docker-Build bricht ab, falls `/data`
+im fertigen Image vorhanden ist. Ein Bind-Mount überdeckt im Image
+vorhandene Inhalte; bei einem neuen benannten Docker-Volume kann Docker
+anfangs Image-Inhalte an das Mount-Ziel kopieren. Bereits vorhandene
+Volume-Inhalte bleiben auch bei einem Image-Update erhalten. Tauchen
+`state` oder `workspaces` im laufenden Container auf, daher zuerst
+das tatsächlich verwendete Image und die Mounts/Volumes des Containers
+prüfen. Das Image oder der Entrypoint löscht keine Volume-Daten.
+
 ### Einmaliges Startup-Log
 
 Der Entrypoint protokolliert vor dem Supervisor-Start einmal pro Containerstart

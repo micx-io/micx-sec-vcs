@@ -23,5 +23,10 @@ COPY container/src ./src
 COPY container/docker/entrypoint.sh /app/entrypoint.sh
 COPY container/docker/startup-info.php /app/docker/startup-info.php
 COPY container/docker/supervisor.sh /app/docker/supervisor.sh
+# The image must never ship a pre-populated data mount target.
+# An externally provided volume is checked by the entrypoint at startup.
+RUN if [ -e /data ] || [ -L /data ]; then \
+      echo 'BUILD_ERROR: /data must not exist in the VCS image' >&2; exit 1; \
+    fi
 USER 10001:10001
 ENTRYPOINT ["sh", "/app/entrypoint.sh"]

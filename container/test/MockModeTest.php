@@ -45,7 +45,7 @@ final class MockModeTest extends TestCase
         self::assertDirectoryDoesNotExist($base . '/repo/main');
 
         mkdir($base . '/repo/main', 0770, true);
-        $pull = $dispatcher->handle($request('pull'));
+        $pull = $dispatcher->handle($request('pull', ['message' => 'Preserve local changes']));
         self::assertTrue($pull['ok']);
         self::assertTrue($pull['mockMode']);
         self::assertTrue($pull['result']['mockMode']);

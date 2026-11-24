@@ -103,7 +103,7 @@ $repo = $client->getRepository(
 );
 
 $directory = $repo->getDirectory(); // /vcs-share/sites/repo
-$repo->pull();                       // stellt Checkout bereit, commitet Dirty Files, pullt; kein Push
+$repo->pull();                       // stellt Checkout bereit, committet Dirty Files, pullt; kein Push
 // Dateien im gemeinsamen Verzeichnis bearbeiten ...
 $repo->commit('Update content');
 $repo->push();

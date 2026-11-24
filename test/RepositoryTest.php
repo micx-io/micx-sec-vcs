@@ -100,6 +100,60 @@ final class RepositoryTest extends TestCase
         }
     }
 
+    public function testPullCommitsDirtyLocalMockWithoutPush(): void
+    {
+        $directory = sys_get_temp_dir() . '/micx-pull-mock-' . bin2hex(random_bytes(8));
+        mkdir($directory);
+        try {
+            $manager = new MixSecVcsClient();
+            $manager->setAllowMockDir(true);
+            $manager->addMockDir('demo', 'main', $directory);
+            $repo = $manager->getRepository('demo', 'main');
+
+            $repo->pull();
+            self::assertCount(0, $repo->getHistory());
+            file_put_contents($directory . '/draft.txt', 'local');
+            $repo->pull('Preserve dirty work');
+            self::assertSame('Preserve dirty work', $repo->getHistory()[0]->message);
+            self::assertTrue($repo->hasUnpushedChanges());
+            $repo->pull();
+            self::assertCount(1, $repo->getHistory());
+            self::assertSame('local', file_get_contents($directory . '/draft.txt'));
+        } finally {
+            foreach (glob($directory . '/{*,.*}', GLOB_BRACE) ?: [] as $file) {
+                if (is_file($file)) {
+                    unlink($file);
+                }
+            }
+            rmdir($directory);
+        }
+    }
+
+    public function testRemotePullPassesCommitMessageAndIdentityInOneRpc(): void
+    {
+        $transport = new class implements RpcTransport {
+            public array $requests = [];
+            public function request(array $request, float $timeout): array
+            {
+                $this->requests[] = $request;
+                return [
+                    'version' => 1, 'id' => $request['id'], 'ok' => true,
+                    'result' => ['revision' => ''],
+                ];
+            }
+        };
+        $manager = new MixSecVcsClient(realpath(sys_get_temp_dir()), $transport);
+        $repo = $manager->getRepository('git@example.test:repo.git', 'main', 'demo/checkout');
+        $repo->setCommitUser('Jane Doe', 'jane@example.com');
+        $repo->pull('My local savepoint');
+        self::assertCount(1, $transport->requests);
+        self::assertSame('pull', $transport->requests[0]['method']);
+        self::assertSame('My local savepoint', $transport->requests[0]['params']['message']);
+        self::assertSame('Jane Doe', $transport->requests[0]['params']['authorName']);
+        self::assertSame('jane@example.com', $transport->requests[0]['params']['authorEmail']);
+        self::assertSame('demo/checkout', $transport->requests[0]['params']['directory']);
+    }
+
     public function testMockJournalPermissionsIgnoreRestrictiveUmask(): void
     {
         $directory = sys_get_temp_dir() . '/mix-vcs-permissions-' . bin2hex(random_bytes(6));

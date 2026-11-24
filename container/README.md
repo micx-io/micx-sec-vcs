@@ -159,6 +159,21 @@ Authentizitätsnachweis akzeptiert (Trust on First Use). Das eignet sich
 nur für vertrauenswürdige Netzwerkumgebungen; ein Angreifer beim ersten
 Verbindungsaufbau könnte einen falschen Key präsentieren.
 
+## Pull und lokale Änderungen
+
+`pull()` ist der normale Weg, um einen Checkout erstmals anzulegen oder
+einen vorhandenen Checkout für die Dateibearbeitung zu aktualisieren.
+Bei vorhandenen uncommitted Änderungen erstellt der Worker **zuerst
+einen lokalen Commit** (Standard-Message
+`Save local changes before pull`, anpassbar per
+`$repo->pull('Eigene Commit-Message')`), holt dann Remote-Änderungen und
+führt den Merge aus. Ein `pull()` macht **niemals Push**. Der SDK-Handle
+berücksichtigt eine zuvor gesetzte `setCommitUser()`-Identität.
+Die beiden Operationen laufen gemeinsam innerhalb der Repository-Sperre.
+`sync()` führt danach ausdrücklich einen Push aus, auch für automatisch
+erstellte Commits. Im serverseitigen Mock Mode wird Git nicht ausgeführt,
+das gewünschte Verzeichnis muss bereits existieren.
+
 ## RPC und Fehlerbehandlung
 
 Die Methoden `ping`, `pull`, `push`, `commit`, `status`, `log`

@@ -1,0 +1,38 @@
+{
+  "name": "micx-io/micx-sec-vcs",
+  "type": "project",
+  "description": "Private-key isolated Git RPC worker",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Matthias Leuffen",
+      "email": "leuffen@continue.de"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "Micx\\SecVcs\\": "src/"
+    }
+  },
+  "require": {
+    "php": ">=8.3",
+    "ext-json": "*",
+    "ext-yaml": "*",
+    "phore/vcs": "^1.0",
+    "php-amqplib/php-amqplib": "^3.7"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.5"
+  },
+  "suggest": {},
+  "config": {
+    "preferred-install": "source",
+    "allow-plugins": {
+      "php-http/discovery": false
+    }
+  },
+  "minimum-stability": "stable",
+  "scripts": {
+    "test": "phpunit"
+  }
+}

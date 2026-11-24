@@ -24,6 +24,7 @@ services:
     image: ghcr.io/micx-io/micx-sec-vcs:latest
     environment:
       CONF_AMQ_CONNECTION: rabbitmq://micx:change-me@rabbitmq:5672/
+      CONF_VCS_MOCK_MODE: "false"
       VCS_SSH_KEY_FILE: /run/secrets/vcs_ssh_key
     secrets:
       - vcs_ssh_key

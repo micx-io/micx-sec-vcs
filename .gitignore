@@ -22,6 +22,7 @@
 
 # Dependencies / generated files
 /vendor
+/container/vendor
 /node_modules
 
 # Temporary / backup files
@@ -58,3 +59,4 @@ $RECYCLE.BIN/
 # MICX runtime and credentials
 /secrets/
 /.phpunit.cache/
+/container/.phpunit.cache/

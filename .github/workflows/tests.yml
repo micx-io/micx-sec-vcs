@@ -22,7 +22,8 @@ jobs:
           extensions: yaml, mbstring, bcmath, sockets, pcntl
           coverage: none
       - run: composer install --no-interaction --prefer-dist
-      - run: find src test -name '*.php' -print0 | xargs -0 -n1 php -l
+      - run: composer install --working-dir=container --no-interaction --prefer-dist
+      - run: find src test container/src container/test -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: RPC integration and unit tests
         env:
           AMQP_TEST_HOST: 127.0.0.1
@@ -31,7 +32,7 @@ jobs:
           export VCS_DATA_DIR="$RUNNER_TEMP/micx-data"
           broker_id='${{ job.services.rabbitmq.id }}'
           docker exec "$broker_id" rabbitmqctl stop_app
-          sh docker/supervisor.sh php src/worker.php >> "$RUNNER_TEMP/worker.log" 2>&1 &
+          sh container/docker/supervisor.sh php container/src/worker.php >> "$RUNNER_TEMP/worker.log" 2>&1 &
           supervisor_pid=$!
           second_pid=''
           trap 'kill "$supervisor_pid" ${second_pid:-} 2>/dev/null || true; cat "$RUNNER_TEMP/worker.log"' EXIT
@@ -48,10 +49,10 @@ jobs:
           docker exec "$broker_id" rabbitmqctl start_app
           wait_log 'worker ready' 1
           # A second worker uses the same queue, data volume and Git-directory locks.
-          sh docker/supervisor.sh php src/worker.php >> "$RUNNER_TEMP/worker.log" 2>&1 &
+          sh container/docker/supervisor.sh php container/src/worker.php >> "$RUNNER_TEMP/worker.log" 2>&1 &
           second_pid=$!
           wait_log 'worker ready' 2
-          composer test
+          composer test --working-dir=container
           retries=$(grep -c 'retry in' "$RUNNER_TEMP/worker.log" || true)
           docker exec "$broker_id" rabbitmqctl stop_app
           wait_log 'retry in' "$((retries + 1))"
@@ -60,8 +61,25 @@ jobs:
           ready=$(grep -c 'worker ready' "$RUNNER_TEMP/worker.log" || true)
           docker exec "$broker_id" rabbitmqctl start_app
           wait_log 'worker ready' "$((ready + 2))"
-          composer test -- --filter RabbitMqIntegrationTest
+          composer test --working-dir=container -- --filter RabbitMqIntegrationTest
           kill "$supervisor_pid" "$second_pid"
           wait "$supervisor_pid"
           wait "$second_pid"
+      - name: RPC integration and unit tests
+        env:
+          AMQP_TEST_HOST: 127.0.0.1
+          AMQP_HOST: 127.0.0.1
+          AMQP_USER: guest
+          AMQP_PASSWORD: guest
+        run: |
+          php test/rpc-fixture.php > "$RUNNER_TEMP/fixture.log" 2>&1 &
+          worker_pid=$!
+          trap 'kill "$worker_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 50); do
+            if [ -f /tmp/micx-rpc-ready ]; then break; fi
+            sleep 0.1
+          done
+          kill -0 "$worker_pid"
+          composer test
+
       - run: docker build -t micx-sec-vcs:test .

@@ -1,7 +1,7 @@
 {
-  "name": "micx-io/micx-sec-vcs",
-  "type": "project",
-  "description": "Private-key isolated Git RPC worker",
+  "name": "micx-io/micx-sec-vcs-client",
+  "type": "library",
+  "description": "Queue RPC client for MICX secure VCS",
   "license": "MIT",
   "authors": [
     {
@@ -11,14 +11,12 @@
   ],
   "autoload": {
     "psr-4": {
-      "Micx\\SecVcs\\": "src/"
+      "Micx\\Vcs\\": "src/"
     }
   },
   "require": {
     "php": ">=8.3",
     "ext-json": "*",
-    "ext-yaml": "*",
-    "phore/vcs": "^1.0",
     "php-amqplib/php-amqplib": "^3.7"
   },
   "require-dev": {

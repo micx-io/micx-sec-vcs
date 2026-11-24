@@ -23,8 +23,14 @@ pcntl_signal(SIGTERM,static function () use (&$stopping) { $stopping=true; });
 pcntl_signal(SIGINT,static function () use (&$stopping) { $stopping=true; });
 umask(0000);
 $storage=new Storage(getenv('VCS_DATA_DIR') ?: '/data');
-$service=new Service($storage,'/run/micx/id_key','/run/micx/known_hosts');
-$dispatcher=new Dispatcher($service->execute(...));
+// Server-only setting: request parameters cannot enable mock mode.
+$mockSetting = strtolower(trim(getenv('CONF_VCS_MOCK_MODE') ?: 'false'));
+if (!in_array($mockSetting, ['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'], true)) {
+    throw new \InvalidArgumentException('Invalid CONF_VCS_MOCK_MODE boolean');
+}
+$mockMode = in_array($mockSetting, ['true', '1', 'yes', 'on'], true);
+$service=new Service($storage,'/run/micx/id_key','/run/micx/known_hosts',$mockMode);
+$dispatcher=new Dispatcher($service->execute(...),$mockMode);
 // Ein Connection-String konfiguriert Host, Port, Credentials und RabbitMQ-VHost.
 $uri=getenv('CONF_AMQ_CONNECTION') ?: 'rabbitmq://micx:micx@rabbitmq:5672/';
 $amq=parse_url($uri);

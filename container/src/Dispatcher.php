@@ -6,7 +6,7 @@ namespace Micx\SecVcs;
 
 final class Dispatcher
 {
-    public function __construct(private \Closure $execute)
+    public function __construct(private \Closure $execute, private bool $mockMode = false)
     {
     }
 
@@ -38,15 +38,27 @@ final class Dispatcher
             }
 
             if (strlen(json_encode($response, JSON_THROW_ON_ERROR)) > 4194304) {
-                return $this->error($id, new Fault('TOO_LARGE', 'Response exceeds 4 MiB'));
+                return $this->annotate($this->error($id, new Fault('TOO_LARGE', 'Response exceeds 4 MiB')));
             }
 
-            return $response;
+            return $this->annotate($response);
         } catch (Fault $e) {
-            return $this->error(is_string($id) ? $id : null, $e);
+            return $this->annotate($this->error(is_string($id) ? $id : null, $e));
         } catch (\Throwable $e) {
-            return $this->error(is_string($id) ? $id : null, new Fault('IO_ERROR', 'Cannot process request'));
+            return $this->annotate($this->error(is_string($id) ? $id : null, new Fault('IO_ERROR', 'Cannot process request')));
         }
+    }
+
+    /** Include the server-controlled mock marker even on errors. */
+    private function annotate(array $response): array
+    {
+        if ($this->mockMode) {
+            $response['mockMode'] = true;
+            if ($response['ok'] && is_array($response['result'])) {
+                $response['result']['mockMode'] = true;
+            }
+        }
+        return $response;
     }
 
     private function error(?string $id, Fault $error): array

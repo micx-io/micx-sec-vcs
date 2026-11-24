@@ -68,6 +68,24 @@ Mount muss UID/GID `10001:10001` Zugriff haben. Unterhalb des
 bereitgestellten Daten-Roots kann der Worker sein internes
 `.mix-vcs-locks`-Verzeichnis anlegen.
 
+### Einmaliges Startup-Log
+
+Der Entrypoint protokolliert vor dem Supervisor-Start einmal pro Containerstart
+`CONF_DATA_DIR`, `CONF_VCS_MOCK_MODE`, die effektive UID/GID und ergänzende
+Gruppen-IDs des Workers, Eigentümer-UID/GID, Unix-Modus sowie die tatsächlich
+ermittelten Lese-, Schreib- und Betretungsrechte des Datenverzeichnisses.
+Außerdem werden ausschließlich direkte Unterverzeichnisse aufgelistet
+(keine Dateien, keine rekursiven Inhalte, keine Symlinks auf Verzeichnisse).
+Das Listing wird als JSON-Array ausgegeben, damit Sonderzeichen in
+Verzeichnisnamen keine zusätzlichen Logzeilen erzeugen. Weitere Environment-
+Variablen und Zugangsdaten werden nicht ausgegeben.
+
+Bei aktiviertem `CONF_VCS_MOCK_MODE` erscheint zusätzlich ein großer
+Warnblock, dass Git und SSH deaktiviert sind und Production explizit
+`CONF_VCS_MOCK_MODE=false` setzen muss. Ein Supervisor-Restart des Workers
+wiederholt diese Startdiagnose nicht. Unix-Rechte und IDs beschreiben den
+sichtbaren Zugriff, bilden jedoch mögliche ACL-Sonderregeln nicht vollständig ab.
+
 ### Berechtigungen der Checkouts
 
 Der Worker ändert weder Eigentümer noch Dateiberechtigungen im gemeinsamen

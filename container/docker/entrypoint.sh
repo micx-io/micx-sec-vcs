@@ -20,6 +20,8 @@ if [ ! -r "$CONF_DATA_DIR" ] || [ ! -w "$CONF_DATA_DIR" ] || [ ! -x "$CONF_DATA_
     exit 1
 fi
 
+php /app/docker/startup-info.php
+
 mkdir -p /run/micx
 
 # Fehlende Credentials verhindern nur Git-Zugriffe, nicht den RPC-Ping.

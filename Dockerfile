@@ -21,6 +21,7 @@ WORKDIR /app
 COPY --from=dependencies /app/vendor ./vendor
 COPY container/src ./src
 COPY container/docker/entrypoint.sh /app/entrypoint.sh
+COPY container/docker/startup-info.php /app/docker/startup-info.php
 COPY container/docker/supervisor.sh /app/docker/supervisor.sh
 USER 10001:10001
 ENTRYPOINT ["sh", "/app/entrypoint.sh"]

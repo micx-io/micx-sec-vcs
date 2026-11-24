@@ -82,7 +82,7 @@ final class VcsMockRepository implements VcsRepository
      * @throws RepositoryNotFoundException Wenn der Pfad inzwischen fehlt.
      * @see self::getDirectory()
      */
-    public function pull(): void
+    public function pull(string $message = 'Save local changes before pull'): void
     {
         if (!is_dir($this->directory)) {
             throw new RepositoryNotFoundException(
@@ -99,9 +99,22 @@ final class VcsMockRepository implements VcsRepository
             );
         }
 
+        if (trim($message) === '') {
+            throw new \InvalidArgumentException('Commit message must not be empty');
+        }
+        $journal = $this->readJournal();
+        $committed = $journal['committedHash'] ?? null;
+        // An entirely empty, never-used mock must not create an artificial commit.
+        $entries = new \FilesystemIterator($this->directory, \FilesystemIterator::SKIP_DOTS);
+        if ($committed === null && !$entries->valid()) {
+            return;
+        }
+        if ($this->fingerprint() !== $committed) {
+            $this->commit($message);
+        }
     }
 
-    /** Mirror the remote sequence in mock mode (pull is a local no-op). */
+    /** Mirror remote sync: pull journals local changes, then push marks them published. */
     public function sync(): void
     {
         $this->pull();

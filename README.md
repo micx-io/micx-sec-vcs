@@ -103,7 +103,7 @@ $repo = $client->getRepository(
 );
 
 $directory = $repo->getDirectory(); // /vcs-share/sites/repo
-$repo->pull();                       // initialisiert bzw. aktualisiert Checkout
+$repo->pull();                       // stellt Checkout bereit, commitet Dirty Files, pullt; kein Push
 // Dateien im gemeinsamen Verzeichnis bearbeiten ...
 $repo->commit('Update content');
 $repo->push();
@@ -137,29 +137,46 @@ Berechtigungen und Startup-Logs](container/README.md).
 
 ## Repository-API
 
-`getRepository($url, $branch, $directory)` gibt sofort einen passiven Handle
-zurück; `$directory` ist ein relativer Pfad unter `sharedDirectory` und kann
-weggelassen werden. Standardmäßig bestimmt das Manager-Template
-`{repo}/{branch}` den Pfad; es lässt sich über
-`storageTemplate: 'sites/{repo}/{branch}'` ändern. `{repo}` ist der
-Repository-Basename ohne `.git`. `getDirectory()` liefert immer den
-absoluten Pfad, auch vor dem ersten Checkout, ohne RPC oder Dateisystemzugriff.
-Erst `pull()` legt das Repository an bzw. aktualisiert es. Bei jedem RPC
-sendet das SDK URL, Branch und das relative Zielverzeichnis. Es gibt keine
-Workspace-Registry, kein Server-Template und keinen vorbereitenden Ping.
-`sync()` führt Pull und Push aus, ohne automatisch zu committen.
+`getRepository($url, $branch, $directory)` liefert einen passiven
+Repository-Handle. Das optionale `$directory` liegt relativ unter dem
+gemeinsamen `sharedDirectory`. Ohne Angabe gilt das Template
+`{repo}/{branch}`, das sich mit `storageTemplate` anpassen lässt.
+`getDirectory()` liefert den absoluten Pfad ohne RPC oder Checkout.
 
-Weitere Methoden: `ping($timeout = 5.0)` (Mock: sofort `true`),
-`setCommitUser($name, $email)`, `commit()`, `push()`,
-`hasUnpushedChanges()`, `getHistory()`, `getBranches()`. Alle Backends implementieren
-`Micx\Vcs\Repository\VcsRepository`.
+### Methodenübersicht
 
-`setCommitUser()` setzt die Git-Identität für spätere `commit()`-Aufrufe
-am aktuellen Repository-Handle. Dabei erfolgt kein RPC. Erst `commit()`
-überträgt `authorName` und `authorEmail` mit der Commit-Nachricht.
-Beide Werte gelten sowohl für den Git-Author als auch den Committer;
-ohne explizite Einstellung verwendet der Worker `MICX <micx@localhost>`.
+| Methode | Verhalten |
+|---|---|
+| `getDirectory()` | Gibt den Pfad zum Checkout zurück, auch wenn er noch nicht existiert. |
+| **`pull($message = 'Save local changes before pull')`** | **Stellt sicher, dass der Checkout initial vorhanden und nutzbar ist:** Beim ersten Aufruf wird geklont. Existiert der Checkout und enthält Dirty Files, werden diese **zuerst lokal mit der angegebenen Commit-Message committed**, danach werden Remote-Änderungen geholt. **Kein Push.** |
+| `commit($message = 'Update workspace')` | Committet lokale Änderungen, ohne Push; ohne Änderungen kein neuer Commit. |
+| `push()` | Veröffentlicht lokale Commits im Remote. |
+| `sync()` | Führt `pull()` und danach `push()` aus; **auch die durch Pull automatisch erstellten Commits werden gepusht**. |
+| `hasUnpushedChanges()` | Erkennt Dirty Files und lokale, noch nicht gepushte Commits. |
+| `getHistory()` | Gibt die Commit-Historie zurück. |
+| `getBranches()` | Gibt die Branches zurück. |
+| `ping($timeout = 5.0)` | Prüft die Erreichbarkeit des Backends. |
+| `setCommitUser($name, $email)` | Setzt Author und Committer für spätere Commits, einschließlich automatischer Commits durch `pull()`, auf diesem Repository-Handle. |
 
-Siehe [das einzige vollständige Beispiel](examples/mixed-repositories.php).
+**Verzeichnis initial bereitstellen:**
 
+```php
+$repo = $client->getRepository('git@github.com:example/repo.git', 'main', 'sites/repo');
+$repo->pull(); // Erstes Checkout; bei späteren Aufrufen Dirty Files committen und pullen.
+$directory = $repo->getDirectory(); // Jetzt im Production-Modus nutzbar.
+```
+
+Bei Bedarf kann die automatische Commit-Message angepasst werden:
+`$repo->pull('Save local workspace before updating from origin');`.
+Der automatische Commit bleibt lokal, bis `push()` oder `sync()`
+ausgeführt wird. Der Worker führt Commit und Pull unter derselben
+Repository-Sperre aus. Konflikte bzw. SSH-Fehler können weiterhin zu
+einer Fehlermeldung führen; `pull()` verwirft keine Änderungen und
+erzwingt keinen Remote-Push. Bei `CONF_MOCK_MODE=true` (serverseitiger
+Testbetrieb) wird kein echtes Git ausgeführt; das Verzeichnis muss
+dann bereits existieren.
+
+`setCommitUser()` ändert die Identität nicht dauerhaft in der
+Git-Konfiguration. Ohne Angabe verwendet der Worker
+`MICX <micx@localhost>`. Siehe [das vollständige Beispiel](examples/mixed-repositories.php).
 

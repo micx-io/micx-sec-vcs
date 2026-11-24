@@ -23,11 +23,15 @@ interface VcsRepository
     /** Absolute application-visible directory holding this repository's files. */
     public function getDirectory(): string;
 
-    /** Synchronize from the remote; overlapping changes prefer the local version. */
-    public function pull(): void;
+    /**
+     * Ensure checkout exists, committing dirty local files before pulling.
+     * Uses the supplied message for an automatic local commit; never pushes.
+     * The worker prefers local contents if merging encounters conflicts.
+     */
+    public function pull(string $message = 'Save local changes before pull'): void;
 
     /**
-     * Pull remote changes, then push local commits. Does not commit dirty files.
+     * Pull remote changes (auto-committing dirty files first), then push local commits.
      * Remote pull retains the worker's own-changes-win conflict strategy.
      * Example: $repo->sync();
      * @see self::pull()

@@ -69,13 +69,21 @@ final class VcsRemoteRepository implements VcsRepository
         return rtrim($this->sharedDirectory, '/') . '/' . $this->relativeDirectory;
     }
 
-    /** Pulls and initializes the checkout when needed. @see self::getDirectory() */
-    public function pull(): void
+    /**
+     * Initialize the checkout or commit dirty files before pulling; never pushes.
+     * Commit identity configured through setCommitUser() is respected.
+     */
+    public function pull(string $message = 'Save local changes before pull'): void
     {
-        $this->client()->call('pull', $this->params());
+        $params = $this->params() + ['message' => $message];
+        if ($this->commitName !== null) {
+            $params['authorName'] = $this->commitName;
+            $params['authorEmail'] = $this->commitEmail;
+        }
+        $this->client()->call('pull', $params);
     }
 
-    /** Pulls then pushes without committing dirty files. @see self::pull() */
+    /** Pulls (committing dirty files first) then pushes. @see self::pull() */
     public function sync(): void
     {
         $this->pull();

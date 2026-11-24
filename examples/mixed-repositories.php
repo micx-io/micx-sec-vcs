@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
-use Micx\Vcs\MixVcsManager;
+use Micx\Vcs\MixSecVcsClient;
 
 const DEVELOPMENT_MODE = true;
 
@@ -14,7 +14,7 @@ if (!is_dir($mockDirectory)) {
 }
 
 // Derselbe Manager für echte Repositories und lokale Mock-Verzeichnisse.
-$manager = new MixVcsManager(
+$manager = new MixSecVcsClient(
     sharedDirectory: '/vcs-share',
     connector: 'rabbitmq://user:password@rabbitmq:5672/micx.vcs.v1',
     storageTemplate: '{repo}/{branch}',

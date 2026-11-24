@@ -13,11 +13,11 @@ Fallunterscheidung erforderlich.
 ## Verwendung
 
 ```php
-use Micx\Vcs\MixVcsManager;
+use Micx\Vcs\MixSecVcsClient;
 
 const DEVELOPMENT_MODE = true; // In Produktion false setzen.
 
-$manager = new MixVcsManager(
+$manager = new MixSecVcsClient(
     sharedDirectory: '/vcs-share',
     connector: 'rabbitmq://user:password@rabbitmq:5672/micx.vcs.v1',
 );
@@ -52,7 +52,7 @@ auch in Produktion im Code, werden aber nur bei
 `setAllowMockDir(DEVELOPMENT_MODE)` mit `DEVELOPMENT_MODE = true` verwendet.
 Andernfalls nimmt der Manager ausschließlich gültig formatierte
 Git-Remote-URLs an; lokale Pfade und `file://` werden abgelehnt.
-Ohne RabbitMQ kann lokal auch `new MixVcsManager()` verwendet werden.
+Ohne RabbitMQ kann lokal auch `new MixSecVcsClient()` verwendet werden.
 
 ## Repository-API
 

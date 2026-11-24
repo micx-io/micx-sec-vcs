@@ -14,7 +14,7 @@ use Micx\Vcs\Repository\VcsRepository;
 use Micx\Vcs\Repository\VcsMockRepository;
 use Micx\Vcs\Repository\VcsRemoteRepository;
 
-final class MixVcsManager
+final class MixSecVcsClient
 {
     /** @var array<string, string> */
     private array $mockDirectories = [];
@@ -32,7 +32,7 @@ final class MixVcsManager
      * The connection from a URL is opened lazily on the first real checkout.
      *
      * Example:
-     * $manager = new MixVcsManager();
+     * $manager = new MixSecVcsClient();
      * $manager->setAllowMockDir(true);
      * $manager->addMockDir('git@github.com:example/repo1.git', 'main', '/tmp/demo');
      * $repository = $manager->getRepository('git@github.com:example/repo1.git', 'main');

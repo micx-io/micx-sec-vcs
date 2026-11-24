@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-use Micx\Vcs\MixVcsManager;
+use Micx\Vcs\MixSecVcsClient;
 use Micx\Vcs\Repository\VcsRepository;
 use Micx\Vcs\Repository\VcsRemoteRepository;
 use Micx\Vcs\Repository\VcsMockRepository;
@@ -20,7 +20,7 @@ final class RepositoryTest extends TestCase
 {
     public function testMockPingRespondsImmediatelyWithoutRemote(): void
     {
-        $manager = new MixVcsManager();
+        $manager = new MixSecVcsClient();
         $manager->setAllowMockDir(true);
         $manager->addMockDir('mock-ping.git', 'main', sys_get_temp_dir());
         $repo = $manager->getRepository('mock-ping.git');
@@ -50,7 +50,7 @@ final class RepositoryTest extends TestCase
             }
         };
 
-        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+        $manager = new MixSecVcsClient(realpath(sys_get_temp_dir()), $transport);
         $repo = $manager->getRepository('git@example.test:ping.git');
         self::assertSame([], $transport->requests);
         self::assertTrue($repo->ping());
@@ -64,7 +64,7 @@ final class RepositoryTest extends TestCase
         $directory = sys_get_temp_dir() . '/mix-vcs-test-' . bin2hex(random_bytes(6));
         mkdir($directory);
         try {
-            $manager = new MixVcsManager();
+            $manager = new MixSecVcsClient();
             $manager->addMockDir('demo', 'main', $directory);
             $manager->setAllowMockDir(true);
             $repo = $manager->getRepository('demo', 'main');
@@ -107,7 +107,7 @@ final class RepositoryTest extends TestCase
         $previousUmask = umask(0077);
 
         try {
-            $manager = new MixVcsManager();
+            $manager = new MixSecVcsClient();
             $manager->setAllowMockDir(true);
             $manager->addMockDir('permissions', 'main', $directory);
             $repo = $manager->getRepository('permissions');
@@ -156,7 +156,7 @@ final class RepositoryTest extends TestCase
         };
 
         $sharedDirectory = realpath(sys_get_temp_dir());
-        $manager = new MixVcsManager($sharedDirectory, $transport);
+        $manager = new MixSecVcsClient($sharedDirectory, $transport);
         $repo = $manager->getRepository('git@example.com:example/site.git', 'main', 'sites/a');
         self::assertInstanceOf(VcsRemoteRepository::class, $repo);
         self::assertSame($sharedDirectory . '/sites/a', $repo->getDirectory());
@@ -199,7 +199,7 @@ final class RepositoryTest extends TestCase
             }
         };
 
-        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+        $manager = new MixSecVcsClient(realpath(sys_get_temp_dir()), $transport);
         $repo = $manager->getRepository('git@example.test:author.git', 'main', 'author/main');
         $repo->setCommitUser('Jane Doe', 'jane@example.com');
         self::assertSame([], $transport->requests);
@@ -222,7 +222,7 @@ final class RepositoryTest extends TestCase
     public function testCommitUserRejectsInvalidIdentityForRemoteAndMock(): void
     {
         $transport = $this->createMock(RpcTransport::class);
-        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+        $manager = new MixSecVcsClient(realpath(sys_get_temp_dir()), $transport);
         $remote = $manager->getRepository('git@example.test:author.git', 'main');
         try {
             $remote->setCommitUser("Name\nInjected", 'jane@example.com');
@@ -231,7 +231,7 @@ final class RepositoryTest extends TestCase
             self::assertTrue(true);
         }
 
-        $manager = new MixVcsManager();
+        $manager = new MixSecVcsClient();
         $manager->addMockDir('mock-author', 'main', sys_get_temp_dir());
         $manager->setAllowMockDir(true);
         $mock = $manager->getRepository('mock-author', 'main');
@@ -254,7 +254,7 @@ final class RepositoryTest extends TestCase
             }
         };
 
-        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+        $manager = new MixSecVcsClient(realpath(sys_get_temp_dir()), $transport);
         $repo = $manager->getRepository('git@example.test:example/repo.git', 'main');
         self::assertSame(realpath(sys_get_temp_dir()) . '/repo/main', $repo->getDirectory());
         self::assertSame([], $transport->methods);
@@ -269,8 +269,8 @@ final class RepositoryTest extends TestCase
         $shared = realpath(sys_get_temp_dir());
         $url = 'git@example.test:example/site.git';
 
-        $first = new MixVcsManager($shared, $transport, storageTemplate: 'projects/{repo}/{branch}');
-        $second = new MixVcsManager($shared, $transport, storageTemplate: 'projects/{repo}/{branch}');
+        $first = new MixSecVcsClient($shared, $transport, storageTemplate: 'projects/{repo}/{branch}');
+        $second = new MixSecVcsClient($shared, $transport, storageTemplate: 'projects/{repo}/{branch}');
         self::assertSame(
             $shared . '/projects/site/main',
             $first->getRepository($url, 'main')->getDirectory()
@@ -290,7 +290,7 @@ final class RepositoryTest extends TestCase
         $directory = sys_get_temp_dir() . '/mix-vcs-sync-' . bin2hex(random_bytes(6));
         mkdir($directory);
         try {
-            $manager = new MixVcsManager();
+            $manager = new MixSecVcsClient();
             $manager->setAllowMockDir(true);
             $manager->addMockDir('repo1.git', 'main', $directory);
             $repo = $manager->getRepository('repo1.git');
@@ -328,7 +328,7 @@ final class RepositoryTest extends TestCase
 
     public function testMockDirectoryMissingHasDiagnosticCode(): void
     {
-        $manager = new MixVcsManager();
+        $manager = new MixSecVcsClient();
         $directory = sys_get_temp_dir() . '/missing-mix-vcs-' . bin2hex(random_bytes(6));
         $manager->setAllowMockDir(true);
         $manager->addMockDir('demo', 'main', $directory);
@@ -344,7 +344,7 @@ final class RepositoryTest extends TestCase
 
     public function testMockDirectoryIsValidatedOnPull(): void
     {
-        $manager = new MixVcsManager();
+        $manager = new MixSecVcsClient();
         $manager->setAllowMockDir(true);
         $manager->addMockDir('demo', 'main', sys_get_temp_dir() . '/missing-mix-vcs-' . bin2hex(random_bytes(6)));
         $repository = $manager->getRepository('demo', 'main');
@@ -354,7 +354,7 @@ final class RepositoryTest extends TestCase
 
     public function testUnusedInvalidMockDoesNotBlockOtherRepositories(): void
     {
-        $manager = new MixVcsManager();
+        $manager = new MixSecVcsClient();
         $manager->setAllowMockDir(true);
         $manager->addMockDir('unused', 'main', '/missing-mix-vcs-' . bin2hex(random_bytes(6)));
         $manager->addMockDir('demo', 'main', sys_get_temp_dir());
@@ -365,7 +365,7 @@ final class RepositoryTest extends TestCase
     {
         $directory = sys_get_temp_dir();
         $sshUrl = 'git@github.com:example/repo1.git';
-        $manager = new MixVcsManager(sharedDirectory: realpath(sys_get_temp_dir()), connector: 'rabbitmq://user:password@unreachable.invalid:5672');
+        $manager = new MixSecVcsClient(sharedDirectory: realpath(sys_get_temp_dir()), connector: 'rabbitmq://user:password@unreachable.invalid:5672');
         $manager->setAllowMockDir(true);
         $manager->addMockDir($sshUrl, 'main', $directory);
 
@@ -379,7 +379,7 @@ final class RepositoryTest extends TestCase
     public function testMockSelectorsDoNotInitializeRemoteConnections(): void
     {
         foreach ([null, 'mock', 'file', 'mock://local', 'file:///tmp'] as $connector) {
-            $manager = new MixVcsManager(connector: $connector);
+            $manager = new MixSecVcsClient(connector: $connector);
             $manager->setAllowMockDir(true);
             $manager->addMockDir('repo1.git', 'main', sys_get_temp_dir());
             $repo = $manager->getRepository('repo1.git');
@@ -397,7 +397,7 @@ final class RepositoryTest extends TestCase
 
     public function testMockBranchUsesExactMapping(): void
     {
-        $manager = new MixVcsManager(connector: 'file');
+        $manager = new MixSecVcsClient(connector: 'file');
         $manager->setAllowMockDir(true);
         $manager->addMockDir('git@github.com:example/repo1.git', 'main', sys_get_temp_dir());
 
@@ -430,7 +430,7 @@ final class RepositoryTest extends TestCase
     public function testMissingSharedDirectoryIsRejectedForRabbitMqConnector(): void
     {
         try {
-            new MixVcsManager(connector: 'rabbitmq://user:pass@rabbitmq:5672');
+            new MixSecVcsClient(connector: 'rabbitmq://user:pass@rabbitmq:5672');
             self::fail('Remote connector must require shared directory');
         } catch (InternalException $e) {
             self::assertSame(ErrorCode::SHARED_DIRECTORY_INVALID, $e->errorCode);
@@ -441,14 +441,14 @@ final class RepositoryTest extends TestCase
     {
         $transport = $this->createMock(RpcTransport::class);
         $this->expectException(InternalException::class);
-        new MixVcsManager(connector: $transport);
+        new MixSecVcsClient(connector: $transport);
     }
 
     public function testInvalidSharedDirectoryIsRejectedBeforeAnyBrokerConnection(): void
     {
         $missing = sys_get_temp_dir() . '/mix-vcs-missing-' . bin2hex(random_bytes(6));
         try {
-            new MixVcsManager(sharedDirectory: $missing, connector: 'rabbitmq://user:pass@rabbitmq:5672');
+            new MixSecVcsClient(sharedDirectory: $missing, connector: 'rabbitmq://user:pass@rabbitmq:5672');
             self::fail('Missing volume should not be accepted');
         } catch (InternalException $e) {
             self::assertSame(ErrorCode::SHARED_DIRECTORY_INVALID, $e->errorCode);
@@ -457,7 +457,7 @@ final class RepositoryTest extends TestCase
 
     public function testDeferredValidationAllowsMockWithMissingSharedDirectory(): void
     {
-        $manager = new MixVcsManager(
+        $manager = new MixSecVcsClient(
             sharedDirectory: sys_get_temp_dir() . '/mix-vcs-missing-' . bin2hex(random_bytes(6)),
             connector: 'rabbitmq://user:pass@unreachable.invalid:5672',
             deferSharedDirectoryValidation: true,
@@ -472,7 +472,7 @@ final class RepositoryTest extends TestCase
         $directory = sys_get_temp_dir() . '/mix-vcs-missing-' . bin2hex(random_bytes(6));
         $transport = $this->createMock(RpcTransport::class);
         $transport->expects(self::never())->method('request');
-        $manager = new MixVcsManager(
+        $manager = new MixSecVcsClient(
             sharedDirectory: $directory,
             connector: $transport,
             deferSharedDirectoryValidation: true,
@@ -487,7 +487,7 @@ final class RepositoryTest extends TestCase
     {
         $transport = $this->createMock(RpcTransport::class);
         $transport->expects(self::never())->method('request');
-        $manager = new MixVcsManager(
+        $manager = new MixSecVcsClient(
             sharedDirectory: realpath(sys_get_temp_dir()),
             connector: $transport,
             deferSharedDirectoryValidation: true,
@@ -497,7 +497,7 @@ final class RepositoryTest extends TestCase
 
     public function testMockOnlyDoesNotRequireSharedDirectory(): void
     {
-        $manager = new MixVcsManager();
+        $manager = new MixSecVcsClient();
         $manager->setAllowMockDir(true);
         $manager->addMockDir('repo1.git', 'main', sys_get_temp_dir());
         $repo = $manager->getRepository('repo1.git');
@@ -508,7 +508,7 @@ final class RepositoryTest extends TestCase
     public function testLocalPathsAreRejectedInRemoteMode(): void
     {
         $transport = $this->createMock(RpcTransport::class);
-        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+        $manager = new MixSecVcsClient(realpath(sys_get_temp_dir()), $transport);
 
         foreach (['/tmp/repo.git', './repo.git', '../repo.git', 'file:///tmp/repo.git', 'repo1.git'] as $url) {
             try {
@@ -531,7 +531,7 @@ final class RepositoryTest extends TestCase
             }
         };
 
-        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+        $manager = new MixSecVcsClient(realpath(sys_get_temp_dir()), $transport);
         foreach ([
             'git@github.com:example/repo1.git',
             'ssh://git@github.com/example/repo1.git',
@@ -546,7 +546,7 @@ final class RepositoryTest extends TestCase
     public function testDisabledMockCannotBeUsedWithoutConnector(): void
     {
         $directory = sys_get_temp_dir();
-        $manager = new MixVcsManager();
+        $manager = new MixSecVcsClient();
         $manager->addMockDir('demo', 'main', $directory);
         $this->expectException(RepositoryNotFoundException::class);
         $manager->getRepository('demo', 'main');

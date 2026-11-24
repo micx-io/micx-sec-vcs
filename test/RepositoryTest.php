@@ -417,7 +417,8 @@ final class RepositoryTest extends TestCase
 
     public function testRabbitMqUrlDoesNotConnectWhenMockMatches(): void
     {
-        $directory = sys_get_temp_dir();
+        $directory = sys_get_temp_dir() . '/micx-remote-mock-' . bin2hex(random_bytes(8));
+        mkdir($directory);
         $sshUrl = 'git@github.com:example/repo1.git';
         $manager = new MixSecVcsClient(sharedDirectory: realpath(sys_get_temp_dir()), connector: 'rabbitmq://user:password@unreachable.invalid:5672');
         $manager->setAllowMockDir(true);
@@ -428,17 +429,20 @@ final class RepositoryTest extends TestCase
         $repo->pull();
         self::assertSame(realpath($directory), $repo->getDirectory());
         self::assertSame('main', $repo->getBranches()[0]->name);
+        rmdir($directory);
     }
 
     public function testMockSelectorsDoNotInitializeRemoteConnections(): void
     {
+        $directory = sys_get_temp_dir() . '/micx-selectors-mock-' . bin2hex(random_bytes(8));
+        mkdir($directory);
         foreach ([null, 'mock', 'file', 'mock://local', 'file:///tmp'] as $connector) {
             $manager = new MixSecVcsClient(connector: $connector);
             $manager->setAllowMockDir(true);
-            $manager->addMockDir('repo1.git', 'main', sys_get_temp_dir());
+            $manager->addMockDir('repo1.git', 'main', $directory);
             $repo = $manager->getRepository('repo1.git');
             $repo->pull();
-            self::assertSame(realpath(sys_get_temp_dir()), $repo->getDirectory());
+            self::assertSame(realpath($directory), $repo->getDirectory());
             try {
                 $manager->getRepository('repo2.git');
             } catch (RepositoryNotFoundException $e) {
@@ -447,6 +451,7 @@ final class RepositoryTest extends TestCase
             }
             self::fail('Unmapped repository should require a connector');
         }
+        rmdir($directory);
     }
 
     public function testMockBranchUsesExactMapping(): void
@@ -551,12 +556,15 @@ final class RepositoryTest extends TestCase
 
     public function testMockOnlyDoesNotRequireSharedDirectory(): void
     {
+        $directory = sys_get_temp_dir() . '/micx-only-mock-' . bin2hex(random_bytes(8));
+        mkdir($directory);
         $manager = new MixSecVcsClient();
         $manager->setAllowMockDir(true);
-        $manager->addMockDir('repo1.git', 'main', sys_get_temp_dir());
+        $manager->addMockDir('repo1.git', 'main', $directory);
         $repo = $manager->getRepository('repo1.git');
         $repo->pull();
-        self::assertSame(realpath(sys_get_temp_dir()), $repo->getDirectory());
+        self::assertSame(realpath($directory), $repo->getDirectory());
+        rmdir($directory);
     }
 
     public function testLocalPathsAreRejectedInRemoteMode(): void

@@ -1,5 +1,5 @@
 {
-  "name": "micx-io/micx-sec-vcs-client",
+  "name": "micx/sec-vcs-client",
   "type": "library",
   "description": "Queue RPC client for MICX secure VCS",
   "license": "MIT",

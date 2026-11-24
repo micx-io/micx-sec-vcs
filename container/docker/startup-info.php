@@ -27,23 +27,35 @@ $mode = fileperms($dataDir);
 $uid = function_exists('posix_geteuid') ? posix_geteuid() : null;
 $gid = function_exists('posix_getegid') ? posix_getegid() : null;
 $groups = function_exists('posix_getgroups') ? posix_getgroups() : [];
-$listing = scandir($dataDir);
-if ($listing === false) {
-    fwrite(STDERR, "CONF_DATA_DIR_LIST_FAILED: cannot list immediate directory entries\n");
-    exit(1);
+$canRead = is_readable($dataDir);
+$canWrite = is_writable($dataDir);
+$canTraverse = is_executable($dataDir);
+$missingAccess = [];
+if (!$canRead) {
+    $missingAccess[] = 'read';
+}
+if (!$canWrite) {
+    $missingAccess[] = 'write';
+}
+if (!$canTraverse) {
+    $missingAccess[] = 'traverse';
 }
 
+// List only immediate directories if the process can read and traverse the mount.
+$listing = ($canRead && $canTraverse) ? @scandir($dataDir) : false;
 $directories = [];
-foreach ($listing as $name) {
-    if ($name === '.' || $name === '..') {
-        continue;
+if ($listing !== false) {
+    foreach ($listing as $name) {
+        if ($name === '.' || $name === '..') {
+            continue;
+        }
+        $path = $dataDir . '/' . $name;
+        if (!is_link($path) && is_dir($path)) {
+            $directories[] = $name;
+        }
     }
-    $path = $dataDir . '/' . $name;
-    if (!is_link($path) && is_dir($path)) {
-        $directories[] = $name;
-    }
+    sort($directories, SORT_STRING);
 }
-sort($directories, SORT_STRING);
 
 $lines = [
     'VCS STARTUP CONFIGURATION (one time per container start)',
@@ -53,13 +65,28 @@ $lines = [
         . ' supplementary_gids=' . $encode($groups),
     'data_owner_uid=' . $encode($owner) . ' data_owner_gid=' . $encode($group)
         . ' data_mode=' . ($mode === false ? 'unavailable' : sprintf('%04o', $mode & 07777)),
-    'worker_access=read:' . (is_readable($dataDir) ? 'yes' : 'no')
-        . ',write:' . (is_writable($dataDir) ? 'yes' : 'no')
-        . ',traverse:' . (is_executable($dataDir) ? 'yes' : 'no'),
-    'immediate_subdirectories=' . $encode($directories),
+    'worker_access=read:' . ($canRead ? 'yes' : 'no')
+        . ',write:' . ($canWrite ? 'yes' : 'no')
+        . ',traverse:' . ($canTraverse ? 'yes' : 'no'),
+    'immediate_subdirectories=' . ($listing === false ? 'unavailable (cannot list directory)' : $encode($directories)),
     'Only direct directories are listed; files and nested entries are omitted.',
 ];
 fwrite(STDERR, implode("\n", $lines) . "\n");
+
+if ($missingAccess !== []) {
+    fwrite(STDERR, 'CONF_DATA_DIR_ACCESS_DENIED: worker cannot ' . implode(', ', $missingAccess)
+        . ' configured data directory ' . $encode($dataDir) . "\n"
+        . 'Directory metadata (ls -ld equivalent): owner_uid=' . $encode($owner)
+        . ' group_gid=' . $encode($group)
+        . ' mode=' . ($mode === false ? 'unavailable' : sprintf('%04o', $mode & 07777)) . "\n"
+        . 'Check mount ownership, permission bits, supplementary groups, parent-directory traversal, ACLs and read-only mounts. '
+        . 'Grant the worker UID/GID access on the host or volume; permissions are not changed automatically.' . "\n");
+    exit(1);
+}
+if ($listing === false) {
+    fwrite(STDERR, 'CONF_DATA_DIR_LIST_FAILED: cannot list directory ' . $encode($dataDir) . "\n");
+    exit(1);
+}
 
 if ($mockMode) {
     $banner = str_repeat('=', 76);

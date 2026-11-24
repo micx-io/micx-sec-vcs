@@ -15,11 +15,8 @@ if [ ! -d "$CONF_DATA_DIR" ] || [ -L "$CONF_DATA_DIR" ]; then
     echo "CONF_DATA_DIR_NOT_FOUND: configured data directory does not exist or is a symlink: $CONF_DATA_DIR" >&2
     exit 1
 fi
-if [ ! -r "$CONF_DATA_DIR" ] || [ ! -w "$CONF_DATA_DIR" ] || [ ! -x "$CONF_DATA_DIR" ]; then
-    echo "CONF_DATA_DIR_ACCESS_DENIED: worker cannot access data directory: $CONF_DATA_DIR" >&2
-    exit 1
-fi
-
+# Log mount ownership and effective access before refusing an inaccessible volume.
+# This diagnostics command also validates permissions and exits nonzero on failure.
 php /app/docker/startup-info.php
 
 mkdir -p /run/micx

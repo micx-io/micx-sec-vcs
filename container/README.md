@@ -61,10 +61,16 @@ müssen URL-encoded sein. `amqps://` wird derzeit nicht unterstützt.
 Das Image enthält kein `/data` und legt den Daten-Root nicht an.
 `CONF_DATA_DIR` muss beim Start gesetzt sein und auf ein bereits
 vorhandenes, von außen gemountetes Verzeichnis zeigen. Der Entrypoint
-prüft Existenz sowie Lese-, Schreib- und Betretungsrechte; fehlt der
-Pfad oder die Variable, endet der Container mit einer Fehlermeldung,
-bevor der Worker beziehungsweise RabbitMQ gestartet wird. Für den
-Mount muss UID/GID `10001:10001` Zugriff haben. Unterhalb des
+prüft Existenz sowie Lese-, Schreib- und Betretungsrechte. Bei fehlendem
+Zugriff zeigt er zusätzlich die effektive Worker-UID/GID und Gruppen, die
+Owner-UID/GID, den Unix-Modus (`ls -ld`-ähnliche Metadaten) und welche
+Zugriffsart konkret fehlt. Lesbare direkte Unterverzeichnisse werden auch bei
+fehlendem Schreibzugriff gelistet. Fehlt der Pfad oder die Variable, endet
+der Container mit einer Fehlermeldung, bevor der Worker beziehungsweise
+RabbitMQ gestartet wird. Für den Mount muss UID/GID `10001:10001`
+Zugriff haben. Das Volume wird beim Start absichtlich nicht mit `chmod`
+oder `chown` verändert: Rechte auf dem Host beziehungsweise über Volume-
+Ownership, Gruppen oder ACLs korrekt bereitstellen. Unterhalb des
 bereitgestellten Daten-Roots kann der Worker sein internes
 `.mix-vcs-locks`-Verzeichnis anlegen.
 

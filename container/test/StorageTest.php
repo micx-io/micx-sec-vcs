@@ -113,6 +113,45 @@ final class StorageTest extends TestCase
         self::assertStringNotContainsString('WARNING: VCS WORKER RUNNING IN MOCK MODE', $productionLog);
     }
 
+    public function testStartupDiagnosticsExplainUnwritableMount(): void
+    {
+        if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            self::markTestSkipped('Root bypasses normal filesystem permission checks.');
+        }
+
+        $base = sys_get_temp_dir() . '/micx-locked-mount-' . bin2hex(random_bytes(8));
+        mkdir($base, 0700);
+        chmod($base, 0500);
+        try {
+            $process = proc_open(
+                [PHP_BINARY, __DIR__ . '/../docker/startup-info.php'],
+                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes,
+                null,
+                ['CONF_DATA_DIR' => $base, 'CONF_VCS_MOCK_MODE' => 'false'],
+            );
+            self::assertIsResource($process);
+            $stdout = stream_get_contents($pipes[1]);
+            $stderr = stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+
+            self::assertNotSame(0, proc_close($process));
+            self::assertSame('', $stdout);
+            self::assertStringContainsString('CONF_DATA_DIR_ACCESS_DENIED', $stderr);
+            self::assertStringContainsString('write', $stderr);
+            self::assertStringContainsString($base, $stderr);
+            self::assertStringContainsString('worker_uid=', $stderr);
+            self::assertStringContainsString('data_owner_uid=', $stderr);
+            self::assertStringContainsString('data_mode=0500', $stderr);
+            self::assertStringContainsString('worker_access=read:yes,write:no,traverse:yes', $stderr);
+            self::assertStringContainsString('Directory metadata (ls -ld equivalent)', $stderr);
+        } finally {
+            chmod($base, 0700);
+            rmdir($base);
+        }
+    }
+
     public function testRejectsTraversalAndGitMetadata(): void
     {
         foreach (['../key', '/etc/passwd', 'a/.git/config', '.mix-vcs-locks/request', 'a//b', 'a/../b', "a\0b", 'a\\b'] as $path) {

@@ -62,7 +62,7 @@ final class Service
 
             $exists = is_file($gitDirectory . '/HEAD');
             if ($exists) {
-                $this->assertCheckoutPermissions($directory);
+                $this->assertCheckoutPermissions($directory, $method === 'pull');
             }
             if (!$exists && $method !== 'pull') {
                 throw new Fault('NOT_FOUND', 'Repository not checked out; pull first');
@@ -75,8 +75,15 @@ final class Service
                     if (is_dir($directory) && iterator_count(new \FilesystemIterator($directory)) > 0) {
                         throw new Fault('DIRECTORY_EXISTS', 'Checkout directory is not empty');
                     }
-                    if (!is_dir($directory) && !mkdir($directory, 0770, true)) {
-                        throw new Fault('IO_ERROR', 'Cannot create checkout directory');
+                    if (!is_dir($directory)) {
+                        $previousUmask = umask(0000);
+                        try {
+                            if (!mkdir($directory, 0777, true)) {
+                                throw new Fault('IO_ERROR', 'Cannot create checkout directory: ' . $directory);
+                            }
+                        } finally {
+                            umask($previousUmask);
+                        }
                     }
                 }
             }
@@ -86,11 +93,14 @@ final class Service
                 // Fehlschläge beim ersten Fetch dürfen keinen ungültigen Checkout zurücklassen.
                 try {
                     $git->initialize($branch);
-                    $this->assertCheckoutPermissions($directory);
                 } catch (\Throwable $e) {
-                    $this->removeDirectory($directory);
+                    if (!$e instanceof Fault || $e->kind !== 'IO_ERROR') {
+                        $this->removeDirectory($directory);
+                    }
                     throw $e;
                 }
+                // Eine fehlgeschlagene Rechteprüfung darf niemals Dateien löschen.
+                $this->assertCheckoutPermissions($directory, true);
                 return ['revision' => $git->getRev()];
             }
 
@@ -122,7 +132,7 @@ final class Service
                         $git->commit($message, $authorName, $authorEmail);
                     }
                     $git->pull();
-                    $this->assertCheckoutPermissions($directory);
+                    $this->assertCheckoutPermissions($directory, true);
                     break;
 
                 case 'push':
@@ -225,11 +235,13 @@ final class Service
     }
 
     /**
-     * Check access needed by the worker without changing ownership or modes.
-     * Symlinks are not followed. Report the first inaccessible path to the client.
+     * Check working-tree access without changing ownership or modes.
+     * Pull additionally checks shared permissions; other RPCs check worker access.
+     * Git metadata and symlinks are excluded from the recursive scan.
      */
-    private function assertCheckoutPermissions(string $directory): void
+    private function assertCheckoutPermissions(string $directory, bool $shared = false): void
     {
+        clearstatcache();
         // Git must be able to traverse and create files in every checkout parent.
         $parent = $directory;
         while (true) {
@@ -240,11 +252,21 @@ final class Service
             if ($parent === $this->storage->data) {
                 break;
             }
+            $required = $parent === $directory ? 0777 : 0111;
+            if ($shared && (fileperms($parent) & $required) !== $required) {
+                throw new Fault('IO_ERROR', 'Insufficient shared directory permissions: ' . $parent);
+            }
             $parent = dirname($parent);
         }
 
-        $items = new \RecursiveIteratorIterator(
+        // Filter before recursion: even inaccessible .git children are never visited.
+        $workingTree = new \RecursiveCallbackFilterIterator(
             new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
+            static fn (\SplFileInfo $item): bool => !$item->isLink()
+                && strcasecmp($item->getFilename(), '.git') !== 0,
+        );
+        $items = new \RecursiveIteratorIterator(
+            $workingTree,
             \RecursiveIteratorIterator::SELF_FIRST,
             \RecursiveIteratorIterator::CATCH_GET_CHILD,
         );
@@ -257,11 +279,15 @@ final class Service
                 if (!is_readable($path) || !is_writable($path) || !is_executable($path)) {
                     throw new Fault('IO_ERROR', 'Insufficient directory permissions: ' . $path);
                 }
+                if ($shared && ($item->getPerms() & 0777) !== 0777) {
+                    throw new Fault('IO_ERROR', 'Insufficient shared directory permissions: ' . $path);
+                }
             } elseif ($item->isFile()) {
-                // Git objects are immutable and intentionally often read-only (0444).
-                $isGitObject = str_starts_with($path, $directory . '/.git/objects/');
-                if (!is_readable($path) || (!$isGitObject && !is_writable($path))) {
+                if (!is_readable($path) || !is_writable($path)) {
                     throw new Fault('IO_ERROR', 'Insufficient file permissions: ' . $path);
+                }
+                if ($shared && ($item->getPerms() & 0666) !== 0666) {
+                    throw new Fault('IO_ERROR', 'Insufficient shared file permissions: ' . $path);
                 }
             }
         }

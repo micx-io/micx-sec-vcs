@@ -21,7 +21,18 @@ final class SecureGit extends GitRepository
         $env = ['PATH'=>'/usr/local/bin:/usr/bin:/bin', 'HOME'=>dirname($this->key), 'LANG'=>'C.UTF-8',
             'GIT_CONFIG_NOSYSTEM'=>'1', 'GIT_CONFIG_GLOBAL'=>'/dev/null', 'GIT_TERMINAL_PROMPT'=>'0',
             'GIT_ATTR_NOSYSTEM'=>'1', 'GIT_NO_REPLACE_OBJECTS'=>'1'];
-        $p = proc_open(array_merge($base, $args), [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes, $this->work, $env);
+        // Nur Working-Tree-Schreiboperationen benötigen eine offene umask.
+        // Git verwaltet Metadaten weiterhin mit privaten Rechten.
+        $writesWorktree = in_array($args[0] ?? '', ['checkout', 'merge'], true);
+        if ($writesWorktree) {
+            array_push($base, '-c', 'core.sharedRepository=0600');
+        }
+        $previousUmask = umask($writesWorktree ? 0000 : 0077);
+        try {
+            $p = proc_open(array_merge($base, $args), [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes, $this->work, $env);
+        } finally {
+            umask($previousUmask);
+        }
         if (!is_resource($p)) throw new Fault('GIT_FAILED', 'Cannot start Git');
         fclose($pipes[0]); stream_set_blocking($pipes[1], false); stream_set_blocking($pipes[2], false);
         $out = ''; $err = ''; $errSize = 0; $exit = -1; $end = microtime(true)+60;

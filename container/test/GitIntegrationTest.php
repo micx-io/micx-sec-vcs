@@ -129,6 +129,88 @@ final class GitIntegrationTest extends TestCase
         self::assertSame('',$git->run(['status','--porcelain']));
         self::assertCount(3,explode(' ',trim($git->run(['rev-list','--parents','-n','1','HEAD']))));
     }
+    public function testCheckoutAndMergeCreateSharedFilesWithPrivateGitMetadata(): void
+    {
+        $base = sys_get_temp_dir() . '/micx-shared-' . bin2hex(random_bytes(8));
+        $work = $base . '/work';
+        $previousUmask = umask(0077);
+        try {
+            mkdir($work, 0700, true);
+            $git = new SecureGit('git@example.test:repo.git', $work, $work . '/.git', $base . '/key', $base . '/known_hosts');
+            $git->initialize('main', true);
+
+            // Eine unveränderte Datei darf auch mit restriktiven Rechten nicht chmodded werden.
+            file_put_contents($work . '/unchanged.txt', 'keep');
+            $git->commit('Base');
+            $git->run(['checkout', '-b', 'incoming']);
+            mkdir($work . '/nested');
+            file_put_contents($work . '/nested/file.txt', 'new');
+            file_put_contents($work . '/script.sh', "#!/bin/sh\n");
+            chmod($work . '/script.sh', 0700);
+            $git->commit('Incoming');
+            $git->run(['checkout', 'main']);
+
+            // Erstes Materialisieren des Branches und späterer Merge erzeugen dieselben Modi.
+            $assertModes = static function () use ($work): void {
+                clearstatcache();
+                self::assertSame(0777, fileperms($work . '/nested') & 0777);
+                self::assertSame(0666, fileperms($work . '/nested/file.txt') & 0777);
+                self::assertSame(0777, fileperms($work . '/script.sh') & 0777);
+                self::assertSame(0600, fileperms($work . '/unchanged.txt') & 0777);
+                self::assertSame(0700, fileperms($work . '/.git') & 0777);
+                self::assertSame(0600, fileperms($work . '/.git/index') & 0777);
+                self::assertSame(0600, fileperms($work . '/.git/HEAD') & 0777);
+                self::assertSame(0077, umask());
+            };
+            $git->run(['checkout', 'incoming']);
+            $assertModes();
+            $git->run(['checkout', 'main']);
+            $git->mergeOurs('incoming');
+            $assertModes();
+        } finally {
+            umask($previousUmask);
+        }
+    }
+
+    public function testPermissionScanIgnoresGitMetadataAndDoesNotRepairOrDeleteFiles(): void
+    {
+        $base = sys_get_temp_dir() . '/micx-permission-' . bin2hex(random_bytes(8));
+        $work = $base . '/repo';
+        $previousUmask = umask(0000);
+        try {
+            mkdir($work, 0777, true);
+        } finally {
+            umask($previousUmask);
+        }
+        $storage = new \Micx\SecVcs\Storage($base);
+        $url = 'git@example.test:repo.git';
+        $git = new SecureGit($url, $work, $work . '/.git', $base . '/key', $base . '/known_hosts');
+        $git->initialize('main', true);
+
+        // Die Datei gehört zu den Metadaten und ist absichtlich nicht beschreibbar.
+        file_put_contents($work . '/.git/private-test', 'private');
+        chmod($work . '/.git/private-test', 0400);
+        $service = new \Micx\SecVcs\Service($storage, $base . '/key', $base . '/known_hosts');
+        $params = ['url' => $url, 'branch' => 'main', 'directory' => 'repo'];
+        self::assertFalse($service->execute('status', $params)['hasUnpushedChanges']);
+
+        // Pull meldet fehlende gemeinsame Rechte, ohne fremde Dateien anzufassen.
+        file_put_contents($work . '/restricted.txt', 'preserve me');
+        chmod($work . '/restricted.txt', 0600);
+        try {
+            $service->execute('pull', $params);
+            self::fail('Expected shared permission error before SSH access');
+        } catch (\Micx\SecVcs\Fault $e) {
+            self::assertSame('IO_ERROR', $e->kind);
+            self::assertStringContainsString($work . '/restricted.txt', $e->getMessage());
+        }
+        clearstatcache();
+        self::assertSame('preserve me', file_get_contents($work . '/restricted.txt'));
+        self::assertSame(0600, fileperms($work . '/restricted.txt') & 0777);
+        self::assertSame(0400, fileperms($work . '/.git/private-test') & 0777);
+        self::assertFileExists($work . '/.git/HEAD');
+    }
+
     public function testGitDiagnosticsBecomeSafeActionableFaults(): void
     {
         $base=sys_get_temp_dir().'/micx-errors-'.bin2hex(random_bytes(8)); mkdir($base); mkdir($base.'/work');

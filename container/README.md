@@ -32,11 +32,16 @@ Filesystem mit funktionierendem `flock` benötigt. Das Verzeichnis
 ### Environment des Workers
 
 `CONF_VCS_MOCK_MODE=true` aktiviert den serverseitigen Testmodus. Der Worker
-validiert weiterhin Repository, Branch und Pfad, erzeugt bei pull das
-Arbeitsverzeichnis, ruft aber niemals Git oder SSH auf und erstellt keine
-.git-Metadaten. Status und Historie sind simuliert. RPC-Erfolgs- und
+validiert weiterhin Repository, Branch und Pfad. Das angegebene
+Arbeitsverzeichnis muss bei allen Repository-Operationen bereits existieren;
+`pull` erstellt es im Mock Mode nicht. Fehlt es, liefert der Worker
+`NOT_FOUND` mit dem vollständigen Pfad und dem Hinweis, den beabsichtigten
+Development- oder Production-Modus zu prüfen. Für Production ist
+`CONF_VCS_MOCK_MODE=false` in der Worker-Konfiguration zu setzen.
+Der Worker ruft im Mock Mode niemals Git oder SSH auf und erstellt keine
+`.git`-Metadaten. Status und Historie sind simuliert. RPC-Erfolgs- und
 Fehlerantworten enthalten `mockMode: true`. Der Client kann den Modus
-nicht ändern.
+nicht ändern. `ping` bleibt eine reine Erreichbarkeitsprüfung.
 
 
 | Variable | Beispiel | Zweck |

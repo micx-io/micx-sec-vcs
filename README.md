@@ -90,12 +90,16 @@ Die Root-`composer.json` ist das Client-Paket.
 ### Serverseitiger Mock Mode
 
 `CONF_VCS_MOCK_MODE=true` auf dem Worker simuliert Git-Operationen
-zu Testzwecken: Requests werden einschließlich URL, Branch und Pfad geprüft,
-`pull` erstellt das Arbeitsverzeichnis im Shared Volume, doch kein Git
-oder SSH wird gestartet. Es entstehen keine `.git`-Metadaten oder Commits.
-Die RPC-Response meldet `mockMode: true`, auch bei Fehlern. Der Client
-kann den Modus nicht ändern. Er unterscheidet sich von den lokalen
-Client-Mocks mit `VcsMockRepository`.
+zu Testzwecken: Requests werden einschließlich URL, Branch und Pfad geprüft.
+Das Verzeichnis muss für Repository-Operationen bereits im Shared Volume
+existieren; auch `pull` legt es im Mock Mode nicht an. Fehlt es, meldet
+der Worker `NOT_FOUND` mit dem vollständigen Pfad und fragt, ob Development
+oder Production beabsichtigt ist. In Production muss die Worker-Konfiguration
+`CONF_VCS_MOCK_MODE=false` verwenden. Es wird kein Git oder SSH gestartet;
+es entstehen keine `.git`-Metadaten oder Commits. `ping` prüft unabhängig
+vom Verzeichnis nur die Erreichbarkeit. Die RPC-Response meldet
+`mockMode: true`, auch bei Fehlern. Der Client kann den Modus nicht ändern.
+Er unterscheidet sich von den lokalen Client-Mocks mit `VcsMockRepository`.
 
 | Worker-Variable | Standard | Beschreibung |
 |---|---|---|

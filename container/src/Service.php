@@ -186,12 +186,13 @@ final class Service
             if (is_link($directory . '/.git')) {
                 throw new Fault('INVALID_PATH', 'Git metadata must not be a symlink');
             }
-            if ($method === 'pull' && !is_dir($directory)
-                && !mkdir($directory, 0770, true) && !is_dir($directory)) {
-                throw new Fault('IO_ERROR', 'Cannot create checkout directory');
-            }
             if (!is_dir($directory)) {
-                throw new Fault('NOT_FOUND', 'Repository not checked out; pull first');
+                throw new Fault(
+                    'NOT_FOUND',
+                    'Mock mode is active (CONF_VCS_MOCK_MODE=true): directory "' . $directory
+                    . '" does not exist on this system. Is Development mode intended? '
+                    . 'For Production mode, set CONF_VCS_MOCK_MODE=false in the worker configuration.'
+                );
             }
             $this->assertCheckoutPermissions($directory);
             if ($method === 'status') {

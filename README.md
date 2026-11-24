@@ -31,11 +31,20 @@ Filesystem mit funktionierendem `flock` benötigt. Das Verzeichnis
 
 ### Environment des Workers
 
+`CONF_VCS_MOCK_MODE=true` aktiviert den serverseitigen Testmodus. Der Worker
+validiert weiterhin Repository, Branch und Pfad, erzeugt bei pull das
+Arbeitsverzeichnis, ruft aber niemals Git oder SSH auf und erstellt keine
+.git-Metadaten. Status und Historie sind simuliert. RPC-Erfolgs- und
+Fehlerantworten enthalten `mockMode: true`. Der Client kann den Modus
+nicht ändern.
+
+
 | Variable | Beispiel | Zweck |
 |---|---|---|
 | `CONF_AMQ_CONNECTION` | `rabbitmq://micx:change-me@rabbitmq:5672/` | Einzige RabbitMQ-Verbindungskonfiguration |
 | `VCS_SSH_KEY_FILE` | `/run/secrets/vcs_ssh_key` | Pfad zum Docker-SSH-Secret |
 | `VCS_DATA_DIR` | `/data` (Standard) | Gemeinsames Checkout-Volume |
+| `CONF_VCS_MOCK_MODE` | `false` oder `true` | Git-freier serverseitiger Testbetrieb |
 
 Die Connection-URI akzeptiert `rabbitmq://` und `amqp://`. Der Pfad
 steht für den **RabbitMQ-VHost** (Standard `/`), nicht für den

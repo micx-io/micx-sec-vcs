@@ -9,7 +9,7 @@ RUN apk add --no-cache git openssh-client yaml \
 FROM base AS dependencies
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 WORKDIR /app
-COPY composer.json composer.lock ./
+COPY container/composer.json container/composer.lock ./
 RUN composer install --no-dev --no-scripts --no-plugins --prefer-dist --no-interaction --optimize-autoloader
 
 FROM base
@@ -19,8 +19,8 @@ RUN addgroup -g 10001 micx && adduser -D -u 10001 -G micx micx \
  && chmod 700 /run/micx
 WORKDIR /app
 COPY --from=dependencies /app/vendor ./vendor
-COPY src ./src
-COPY docker/entrypoint.sh /app/entrypoint.sh
-COPY docker/supervisor.sh /app/docker/supervisor.sh
+COPY container/src ./src
+COPY container/docker/entrypoint.sh /app/entrypoint.sh
+COPY container/docker/supervisor.sh /app/docker/supervisor.sh
 USER 10001:10001
 ENTRYPOINT ["sh", "/app/entrypoint.sh"]

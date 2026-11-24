@@ -11,6 +11,7 @@ final class Service
         private Storage $storage,
         private string $key,
         private string $knownHosts,
+        private bool $mockMode = false,
     ) {
     }
 
@@ -35,6 +36,9 @@ final class Service
         }
 
         $directory = $this->storage->directory($relative);
+        if ($method === 'ping' && $this->mockMode) {
+            return ['pong' => true, 'ready' => true, 'errors' => [], 'mockMode' => true];
+        }
         if ($method === 'ping') {
             $errors = $this->sshErrors();
             return ['pong' => true, 'ready' => $errors === [], 'errors' => $errors];
@@ -42,6 +46,10 @@ final class Service
 
         if (!in_array($method, ['pull', 'push', 'commit', 'status', 'log', 'branches'], true)) {
             throw new Fault('UNKNOWN_METHOD', 'Unknown RPC method');
+        }
+
+        if ($this->mockMode) {
+            return $this->mockExecute($method, $params, $branch, $relative);
         }
 
         return $this->storage->lock($relative, function () use ($method, $params, $url, $branch, $relative): array {
@@ -142,6 +150,60 @@ final class Service
             }
 
             return ['revision' => $git->getRev()];
+        });
+    }
+
+    /**
+     * Executes the directory-based test mode without invoking Git or SSH.
+     * No repository metadata or simulated commits are persisted.
+     *
+     * @param array<string,mixed> $params RPC parameters
+     * @return array<string,mixed> Simulated response
+     * @throws Fault On invalid input or directory access errors
+     * @see self::execute()
+     */
+    private function mockExecute(string $method, array $params, string $branch, string $relative): array
+    {
+        return $this->storage->lock($relative, function () use ($method, $params, $branch, $relative): array {
+            // Dieselben Pfadregeln gelten auch für simulierte Operationen.
+            $directory = $this->storage->directory($relative);
+            if ($method === 'commit') {
+                $message = $params['message'] ?? 'Update workspace';
+                if (!is_string($message) || trim($message) === ''
+                    || strlen($message) > 8192 || str_contains($message, "\0")) {
+                    throw new Fault('INVALID_REQUEST', 'Invalid commit message');
+                }
+                $name = $params['authorName'] ?? null;
+                $email = $params['authorEmail'] ?? null;
+                if (array_key_exists('authorName', $params) !== array_key_exists('authorEmail', $params)
+                    || ($name !== null && (!is_string($name) || trim($name) === ''
+                        || strlen($name) > 256 || preg_match('/[\\x00-\\x1f\\x7f]/', $name)
+                        || !is_string($email) || strlen($email) > 254
+                        || filter_var($email, FILTER_VALIDATE_EMAIL) === false))) {
+                    throw new Fault('INVALID_REQUEST', 'Invalid commit author name or email');
+                }
+            }
+            if (is_link($directory . '/.git')) {
+                throw new Fault('INVALID_PATH', 'Git metadata must not be a symlink');
+            }
+            if ($method === 'pull' && !is_dir($directory)
+                && !mkdir($directory, 0770, true) && !is_dir($directory)) {
+                throw new Fault('IO_ERROR', 'Cannot create checkout directory');
+            }
+            if (!is_dir($directory)) {
+                throw new Fault('NOT_FOUND', 'Repository not checked out; pull first');
+            }
+            $this->assertCheckoutPermissions($directory);
+            if ($method === 'status') {
+                return ['revision' => '', 'hasUnpushedChanges' => false, 'mockMode' => true];
+            }
+            if ($method === 'log') {
+                return ['entries' => [], 'mockMode' => true];
+            }
+            if ($method === 'branches') {
+                return ['branches' => [['name' => $branch, 'latestCommit' => null]], 'mockMode' => true];
+            }
+            return ['revision' => '', 'mockMode' => true];
         });
     }
 

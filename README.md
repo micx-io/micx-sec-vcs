@@ -1,58 +1,139 @@
-# MICX Sec VCS SDK
+# MICX Sec VCS
 
-PHP SDK für den Zugriff auf Git-Repositories über einen isolierten VCS-Worker.
-Die Anwendung benötigt keinen Git-SSH-Key: Er liegt als Secret ausschließlich
-beim Worker. Zwischen Anwendung und Worker liegt RabbitMQ; die Dateien
-stehen über ein gemeinsam gemountetes Volume bereit.
+MICX Sec VCS kapselt Git-Operationen und den privaten SSH-Key in einem
+isolierten Docker-Worker. Die Anwendung spricht den Worker über RabbitMQ an;
+der SSH-Key liegt ausschließlich beim Worker und wird nicht an den Client
+weitergegeben. Checkouts und Git-Metadaten liegen in einem gemeinsam
+gemounteten Verzeichnis, sodass der Client die Dateien direkt bearbeiten
+kann. Der Worker stellt dafür unter anderem `pull`, `commit`, `push`,
+`status` und `log` bereit.
 
-Das gleiche API funktioniert lokal ohne Worker. Mock-Verzeichnisse können
-direkt im Anwendungsrepository liegen. Dadurch ist zwischen Entwicklung
-und Produktion keine eigene Git-Implementierung oder aufwendige
-Fallunterscheidung erforderlich.
+Das Repository enthält **den Container-Worker** unter `container/` und das
+**PHP-Client-Paket** `micx/sec-vcs-client` im Repository-Root. Für die lokale
+Entwicklung gibt es zusätzlich Client-Mocks ohne RabbitMQ oder Git-Zugriff.
 
-## Verwendung
+## Container starten
+
+Ein Docker-Compose-Beispiel mit RabbitMQ und einem extern vorbereiteten
+Checkout-Verzeichnis (alle `CONF_*`-Variablen konfigurieren den **Worker**):
+
+```yaml
+services:
+  rabbitmq:
+    image: rabbitmq:4-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: micx
+      RABBITMQ_DEFAULT_PASS: change-me
+    networks: [rpc]
+
+  vcs:
+    image: ghcr.io/micx-io/micx-sec-vcs:latest
+    environment:
+      CONF_AMQ_CONNECTION: rabbitmq://micx:change-me@rabbitmq:5672/
+      CONF_DATA_DIR: /data
+      CONF_SSH_KEY_FILE: /run/secrets/vcs_ssh_key
+      CONF_MOCK_MODE: "false"
+    secrets: [vcs_ssh_key]
+    volumes:
+      - /srv/micx-vcs:/data
+    networks: [rpc]
+    depends_on: [rabbitmq]
+
+secrets:
+  vcs_ssh_key:
+    file: ./secrets/id_ed25519
+
+networks:
+  rpc:
+    internal: true
+```
+
+Vor dem Start `/srv/micx-vcs` auf dem Docker-Host **explizit anlegen**
+und für die Container-UID/GID `10001:10001` lesbar, beschreibbar und
+betretbar machen. Außerdem die SSH-Private-Key-Datei als Secret
+bereitstellen und die Beispiel-Zugangsdaten ersetzen. Der Worker legt
+`/data` nicht selbst an: Ist `CONF_DATA_DIR` nicht gemountet oder fehlen
+Rechte, bricht der Container mit einer diagnostischen Fehlermeldung ab.
+`CONF_MOCK_MODE=true` ist ausschließlich für Development/Tests gedacht;
+dann werden **keine** Git- oder SSH-Kommandos ausgeführt.
+
+```sh
+docker compose up -d
+```
+
+Der PHP-Client muss dasselbe Verzeichnis (im Beispiel `/srv/micx-vcs`)
+in seinem eigenen Container unter einem gewünschten Pfad, z. B.
+`/vcs-share`, gemountet haben. Nur dann können Client und Worker dieselben
+Checkouts sehen. Für Production die RabbitMQ-Verbindung und Secrets
+absichern.
+
+### Worker-Konfiguration
+
+| Environment-Variable | Wert / Vorgabe | Zweck |
+|---|---|---|
+| `CONF_AMQ_CONNECTION` | z. B. `rabbitmq://micx:change-me@rabbitmq:5672/` | RabbitMQ-Verbindung und VHost |
+| `CONF_DATA_DIR` | Pflicht, z. B. `/data` | Bereits vorhandenes extern gemountetes Datenverzeichnis |
+| `CONF_SSH_KEY_FILE` | empfohlen, z. B. `/run/secrets/vcs_ssh_key` | Pfad zur privaten SSH-Key-Datei als Secret |
+| `CONF_SSH_KEY` | optional, alternativ zu `CONF_SSH_KEY_FILE` | Privater SSH-Key direkt im Environment (nicht empfohlen) |
+| `CONF_MOCK_MODE` | `false` (Standard) | `true` simuliert Git-Operationen ohne Git/SSH |
+
+`CONF_SSH_KEY_FILE` hat Vorrang vor `CONF_SSH_KEY`. SSH-Credentials
+dürfen nicht in Git eingecheckt oder protokolliert werden.
+
+## PHP-Client verwenden
+
+Das Composer-Paket wird direkt aus diesem Repository bereitgestellt:
+
+```sh
+composer require micx/sec-vcs-client
+```
 
 ```php
-use Micx\Vcs\MixSecVcsClient;
+use Micx\\Vcs\\MixSecVcsClient;
 
-const DEVELOPMENT_MODE = true; // In Produktion false setzen.
-
-$manager = new MixSecVcsClient(
+$client = new MixSecVcsClient(
     sharedDirectory: '/vcs-share',
     connector: 'rabbitmq://user:password@rabbitmq:5672/micx.vcs.v1',
 );
-$manager->addMockDir(
-    'git@github.com:example/repo1.git',
+
+$repo = $client->getRepository(
+    'git@github.com:example/repo.git',
     'main',
-    __DIR__ . '/mock-repos/repo1'
+    'sites/repo',
 );
 
-// Mappings bleiben in beiden Umgebungen im Code; nur im Dev-Modus nutzen.
-$manager->setAllowMockDir(DEVELOPMENT_MODE);
-
-// Repo 1 verwendet im Development-Modus das registrierte Mock-Verzeichnis.
-$repo = $manager->getRepository('git@github.com:example/repo1.git', 'main');
-
-// Ohne Mock-Mapping bestimmt der dritte Parameter das Remote-Zielverzeichnis.
-$remote = $manager->getRepository('git@github.com:example/repo2.git', 'main', 'sites/repo2');
-$directory = $remote->getDirectory(); // /vcs-share/sites/repo2, auch vor dem Pull
+$directory = $repo->getDirectory(); // /vcs-share/sites/repo
+$repo->pull();                       // initialisiert bzw. aktualisiert Checkout
+// Dateien im gemeinsamen Verzeichnis bearbeiten ...
+$repo->commit('Update content');
+$repo->push();
 ```
 
-Das Verzeichnis `/vcs-share` muss existieren und direkt als Root-Mount
-im App-Container bereitstehen. Im Worker ist dasselbe Volume unter
-`/data` eingebunden. Auch ein Mock-Verzeichnis muss bereits existieren.
+Das Shared Directory muss im Client existieren. Der Client hält **keinen**
+SSH-Key und sendet Git-Operationen über RabbitMQ an den Worker. Die
+Repository- und Branch-Zuordnung sowie das relative Checkout-Verzeichnis
+legt der Client fest.
 
-Der RabbitMQ-URL-Pfad bezeichnet den Topic-Exchange. Benutzername und
-Passwort dürfen im Connection-String stehen, wenn RabbitMQ ausschließlich
-über ein abgeschottetes privates Docker-Netzwerk erreichbar ist. Zugangsdaten
-dürfen dennoch nicht in Git eingecheckt oder protokolliert werden.
+Für lokale Entwicklung können bestehende Mock-Verzeichnisse registriert
+werden, ohne den Worker aufzurufen:
 
-**Mock-Modus ist standardmäßig aus.** Registrierte Verzeichnisse bleiben
-auch in Produktion im Code, werden aber nur bei
-`setAllowMockDir(DEVELOPMENT_MODE)` mit `DEVELOPMENT_MODE = true` verwendet.
-Andernfalls nimmt der Manager ausschließlich gültig formatierte
-Git-Remote-URLs an; lokale Pfade und `file://` werden abgelehnt.
-Ohne RabbitMQ kann lokal auch `new MixSecVcsClient()` verwendet werden.
+```php
+$client->addMockDir(
+    'git@github.com:example/repo.git',
+    'main',
+    __DIR__ . '/mock-repos/repo'
+);
+$client->setAllowMockDir(true); // nur Development
+```
+
+Die lokalen Client-Mocks unterscheiden sich vom **serverseitigen**
+`CONF_MOCK_MODE`: Im serverseitigen Mock Mode muss jedes Zielverzeichnis
+schon existieren, auch bei `pull`. Ein fehlender Checkout liefert
+`NOT_FOUND`. In Production bleibt der Mock Mode deaktiviert.
+
+Siehe das [vollständige PHP-Beispiel](examples/mixed-repositories.php)
+und die [Container-Dokumentation mit Docker-Swarm, Volumes,
+Berechtigungen und Startup-Logs](container/README.md).
 
 ## Repository-API
 
@@ -82,37 +163,3 @@ ohne explizite Einstellung verwendet der Worker `MICX <micx@localhost>`.
 Siehe [das einzige vollständige Beispiel](examples/mixed-repositories.php).
 
 
-## Docker-Worker
-
-Der Docker-Worker ist unter `container/` mit eigener `composer.json` enthalten.
-Die Root-`composer.json` ist das Client-Paket.
-
-### Serverseitiger Mock Mode
-
-`CONF_MOCK_MODE=true` auf dem Worker simuliert Git-Operationen
-zu Testzwecken: Requests werden einschließlich URL, Branch und Pfad geprüft.
-Das Verzeichnis muss für Repository-Operationen bereits im Shared Volume
-existieren; auch `pull` legt es im Mock Mode nicht an. Fehlt es, meldet
-der Worker `NOT_FOUND` mit dem vollständigen Pfad und fragt, ob Development
-oder Production beabsichtigt ist. In Production muss die Worker-Konfiguration
-`CONF_MOCK_MODE=false` verwenden. Es wird kein Git oder SSH gestartet;
-es entstehen keine `.git`-Metadaten oder Commits. `ping` prüft unabhängig
-vom Verzeichnis nur die Erreichbarkeit. Die RPC-Response meldet
-`mockMode: true`, auch bei Fehlern. Der Client kann den Modus nicht ändern.
-Er unterscheidet sich von den lokalen Client-Mocks mit `VcsMockRepository`.
-
-| Worker-Variable | Standard | Beschreibung |
-|---|---|---|
-| `CONF_MOCK_MODE` | `false` | Bei `true` keine Git-Ausführung; nur Tests |
-| `CONF_DATA_DIR` | erforderlich, z. B. `/data` | Bereits vorhandenes, extern gemountetes Checkout-Volume |
-| `CONF_AMQ_CONNECTION` | `rabbitmq://micx:micx@rabbitmq:5672/` | RabbitMQ-URI |
-| `CONF_SSH_KEY_FILE` | optional, z. B. `/run/secrets/ssh_key` | Pfad zur SSH-Private-Key-Datei im Container |
-| `CONF_SSH_KEY` | optional (nicht empfohlen) | SSH-Private-Key als Environment-Wert, wenn keine Datei konfiguriert ist |
-
-Das Container-Image enthält kein Datenverzeichnis. `CONF_DATA_DIR` muss
-auf einen vorhandenen externen Mount zeigen. Fehlt die Variable oder das
-Verzeichnis beim Start, bricht der Worker mit einer klaren Fehlermeldung ab.
-Er legt den Daten-Root nicht selbst an. Der externe Mount muss für UID
-`10001` lesbar, beschreibbar und betretbar sein.
-
-[Container-Dokumentation](container/README.md).

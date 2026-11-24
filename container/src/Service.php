@@ -189,9 +189,9 @@ final class Service
             if (!is_dir($directory)) {
                 throw new Fault(
                     'NOT_FOUND',
-                    'Mock mode is active (CONF_VCS_MOCK_MODE=true): directory "' . $directory
+                    'Mock mode is active (CONF_MOCK_MODE=true): directory "' . $directory
                     . '" does not exist on this system. Is Development mode intended? '
-                    . 'For Production mode, set CONF_VCS_MOCK_MODE=false in the worker configuration.'
+                    . 'For Production mode, set CONF_MOCK_MODE=false in the worker configuration.'
                 );
             }
             $this->assertCheckoutPermissions($directory);

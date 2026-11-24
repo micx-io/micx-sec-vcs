@@ -89,13 +89,13 @@ Die Root-`composer.json` ist das Client-Paket.
 
 ### Serverseitiger Mock Mode
 
-`CONF_VCS_MOCK_MODE=true` auf dem Worker simuliert Git-Operationen
+`CONF_MOCK_MODE=true` auf dem Worker simuliert Git-Operationen
 zu Testzwecken: Requests werden einschließlich URL, Branch und Pfad geprüft.
 Das Verzeichnis muss für Repository-Operationen bereits im Shared Volume
 existieren; auch `pull` legt es im Mock Mode nicht an. Fehlt es, meldet
 der Worker `NOT_FOUND` mit dem vollständigen Pfad und fragt, ob Development
 oder Production beabsichtigt ist. In Production muss die Worker-Konfiguration
-`CONF_VCS_MOCK_MODE=false` verwenden. Es wird kein Git oder SSH gestartet;
+`CONF_MOCK_MODE=false` verwenden. Es wird kein Git oder SSH gestartet;
 es entstehen keine `.git`-Metadaten oder Commits. `ping` prüft unabhängig
 vom Verzeichnis nur die Erreichbarkeit. Die RPC-Response meldet
 `mockMode: true`, auch bei Fehlern. Der Client kann den Modus nicht ändern.
@@ -103,9 +103,11 @@ Er unterscheidet sich von den lokalen Client-Mocks mit `VcsMockRepository`.
 
 | Worker-Variable | Standard | Beschreibung |
 |---|---|---|
-| `CONF_VCS_MOCK_MODE` | `false` | Bei `true` keine Git-Ausführung; nur Tests |
+| `CONF_MOCK_MODE` | `false` | Bei `true` keine Git-Ausführung; nur Tests |
 | `CONF_DATA_DIR` | erforderlich, z. B. `/data` | Bereits vorhandenes, extern gemountetes Checkout-Volume |
 | `CONF_AMQ_CONNECTION` | `rabbitmq://micx:micx@rabbitmq:5672/` | RabbitMQ-URI |
+| `CONF_SSH_KEY_FILE` | optional, z. B. `/run/secrets/ssh_key` | Pfad zur SSH-Private-Key-Datei im Container |
+| `CONF_SSH_KEY` | optional (nicht empfohlen) | SSH-Private-Key als Environment-Wert, wenn keine Datei konfiguriert ist |
 
 Das Container-Image enthält kein Datenverzeichnis. `CONF_DATA_DIR` muss
 auf einen vorhandenen externen Mount zeigen. Fehlt die Variable oder das

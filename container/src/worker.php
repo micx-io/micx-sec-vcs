@@ -29,9 +29,9 @@ if (!is_string($dataDir) || $dataDir === '') {
 }
 $storage = new Storage($dataDir);
 // Server-only setting: request parameters cannot enable mock mode.
-$mockSetting = strtolower(trim(getenv('CONF_VCS_MOCK_MODE') ?: 'false'));
+$mockSetting = strtolower(trim(getenv('CONF_MOCK_MODE') ?: 'false'));
 if (!in_array($mockSetting, ['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'], true)) {
-    throw new \InvalidArgumentException('Invalid CONF_VCS_MOCK_MODE boolean');
+    throw new \InvalidArgumentException('Invalid CONF_MOCK_MODE boolean');
 }
 $mockMode = in_array($mockSetting, ['true', '1', 'yes', 'on'], true);
 $service=new Service($storage,'/run/micx/id_key','/run/micx/known_hosts',$mockMode);

@@ -31,13 +31,13 @@ Filesystem mit funktionierendem `flock` benötigt. Das Verzeichnis
 
 ### Environment des Workers
 
-`CONF_VCS_MOCK_MODE=true` aktiviert den serverseitigen Testmodus. Der Worker
+`CONF_MOCK_MODE=true` aktiviert den serverseitigen Testmodus. Der Worker
 validiert weiterhin Repository, Branch und Pfad. Das angegebene
 Arbeitsverzeichnis muss bei allen Repository-Operationen bereits existieren;
 `pull` erstellt es im Mock Mode nicht. Fehlt es, liefert der Worker
 `NOT_FOUND` mit dem vollständigen Pfad und dem Hinweis, den beabsichtigten
 Development- oder Production-Modus zu prüfen. Für Production ist
-`CONF_VCS_MOCK_MODE=false` in der Worker-Konfiguration zu setzen.
+`CONF_MOCK_MODE=false` in der Worker-Konfiguration zu setzen.
 Der Worker ruft im Mock Mode niemals Git oder SSH auf und erstellt keine
 `.git`-Metadaten. Status und Historie sind simuliert. RPC-Erfolgs- und
 Fehlerantworten enthalten `mockMode: true`. Der Client kann den Modus
@@ -47,9 +47,17 @@ nicht ändern. `ping` bleibt eine reine Erreichbarkeitsprüfung.
 | Variable | Beispiel | Zweck |
 |---|---|---|
 | `CONF_AMQ_CONNECTION` | `rabbitmq://micx:change-me@rabbitmq:5672/` | Einzige RabbitMQ-Verbindungskonfiguration |
-| `VCS_SSH_KEY_FILE` | `/run/secrets/vcs_ssh_key` | Pfad zum Docker-SSH-Secret |
+| `CONF_SSH_KEY_FILE` | `/run/secrets/vcs_ssh_key` | Pfad zum Docker-SSH-Secret |
+| `CONF_SSH_KEY` | optional (nicht empfohlen) | SSH-Private-Key als Environment-Wert, wenn kein Key-File gesetzt ist |
 | `CONF_DATA_DIR` | `/data` (Beispiel; verpflichtend) | Extern gemountetes, bereits vorhandenes Checkout-Verzeichnis |
-| `CONF_VCS_MOCK_MODE` | `false` oder `true` | Git-freier serverseitiger Testbetrieb |
+| `CONF_MOCK_MODE` | `false` oder `true` | Git-freier serverseitiger Testbetrieb |
+
+Alle Worker-Optionen verwenden das Präfix `CONF_`.
+Die SSH-Key-Varianten sind alternativ: `CONF_SSH_KEY_FILE` hat Vorrang
+vor `CONF_SSH_KEY`. Für Production das Docker-Secret via
+`CONF_SSH_KEY_FILE` nutzen; private Keys nicht direkt als Environment-
+Wert hinterlegen. Vorherige Variablen `VCS_SSH_KEY_FILE`,
+`VCS_SSH_KEY` und `CONF_VCS_MOCK_MODE` werden nicht mehr ausgewertet.
 
 Die Connection-URI akzeptiert `rabbitmq://` und `amqp://`. Der Pfad
 steht für den **RabbitMQ-VHost** (Standard `/`), nicht für den
@@ -89,7 +97,7 @@ prüfen. Das Image oder der Entrypoint löscht keine Volume-Daten.
 ### Einmaliges Startup-Log
 
 Der Entrypoint protokolliert vor dem Supervisor-Start einmal pro Containerstart
-`CONF_DATA_DIR`, `CONF_VCS_MOCK_MODE`, die effektive UID/GID und ergänzende
+`CONF_DATA_DIR`, `CONF_MOCK_MODE`, die effektive UID/GID und ergänzende
 Gruppen-IDs des Workers, Eigentümer-UID/GID, Unix-Modus sowie die tatsächlich
 ermittelten Lese-, Schreib- und Betretungsrechte des Datenverzeichnisses.
 Außerdem werden ausschließlich direkte Unterverzeichnisse aufgelistet
@@ -98,9 +106,9 @@ Das Listing wird als JSON-Array ausgegeben, damit Sonderzeichen in
 Verzeichnisnamen keine zusätzlichen Logzeilen erzeugen. Weitere Environment-
 Variablen und Zugangsdaten werden nicht ausgegeben.
 
-Bei aktiviertem `CONF_VCS_MOCK_MODE` erscheint zusätzlich ein großer
+Bei aktiviertem `CONF_MOCK_MODE` erscheint zusätzlich ein großer
 Warnblock, dass Git und SSH deaktiviert sind und Production explizit
-`CONF_VCS_MOCK_MODE=false` setzen muss. Ein Supervisor-Restart des Workers
+`CONF_MOCK_MODE=false` setzen muss. Ein Supervisor-Restart des Workers
 wiederholt diese Startdiagnose nicht. Unix-Rechte und IDs beschreiben den
 sichtbaren Zugriff, bilden jedoch mögliche ACL-Sonderregeln nicht vollständig ab.
 

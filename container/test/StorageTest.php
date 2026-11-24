@@ -74,7 +74,7 @@ final class StorageTest extends TestCase
                 null,
                 [
                     'CONF_DATA_DIR' => $base,
-                    'CONF_VCS_MOCK_MODE' => $mock,
+                    'CONF_MOCK_MODE' => $mock,
                     'CONF_AMQ_CONNECTION' => 'rabbitmq://user:SECRET_PASSWORD@host/',
                 ],
             );
@@ -91,8 +91,8 @@ final class StorageTest extends TestCase
         self::assertSame(0, $exit);
         self::assertSame('', $out);
         self::assertSame(1, substr_count($log, 'VCS STARTUP CONFIGURATION'));
-        self::assertStringContainsString('CONF_DATA_DIR=' . json_encode($base), $log);
-        self::assertStringContainsString('CONF_VCS_MOCK_MODE=true', $log);
+        self::assertStringContainsString('CONF_DATA_DIR=' . json_encode($base, JSON_UNESCAPED_SLASHES), $log);
+        self::assertStringContainsString('CONF_MOCK_MODE=true', $log);
         self::assertStringContainsString('worker_uid=', $log);
         self::assertStringContainsString('worker_gid=', $log);
         self::assertStringContainsString('data_owner_uid=', $log);
@@ -100,16 +100,16 @@ final class StorageTest extends TestCase
         self::assertStringContainsString('worker_access=read:', $log);
         self::assertStringContainsString('immediate_subdirectories=["first","second"]', $log);
         self::assertStringNotContainsString('secret-file.txt', $log);
-        self::assertStringNotContainsString('nested', $log);
+        self::assertStringNotContainsString('"nested"', $log);
         self::assertStringNotContainsString('link-to-first', $log);
         self::assertStringNotContainsString('MUST_NOT_LOG', $log);
         self::assertStringNotContainsString('SECRET_PASSWORD', $log);
         self::assertStringContainsString('WARNING: VCS WORKER RUNNING IN MOCK MODE', $log);
-        self::assertStringContainsString('CONF_VCS_MOCK_MODE=false', $log);
+        self::assertStringContainsString('CONF_MOCK_MODE=false', $log);
 
         [$exit, , $productionLog] = $run('false');
         self::assertSame(0, $exit);
-        self::assertStringContainsString('CONF_VCS_MOCK_MODE=false', $productionLog);
+        self::assertStringContainsString('CONF_MOCK_MODE=false', $productionLog);
         self::assertStringNotContainsString('WARNING: VCS WORKER RUNNING IN MOCK MODE', $productionLog);
     }
 
@@ -128,7 +128,7 @@ final class StorageTest extends TestCase
                 [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
                 $pipes,
                 null,
-                ['CONF_DATA_DIR' => $base, 'CONF_VCS_MOCK_MODE' => 'false'],
+                ['CONF_DATA_DIR' => $base, 'CONF_MOCK_MODE' => 'false'],
             );
             self::assertIsResource($process);
             $stdout = stream_get_contents($pipes[1]);

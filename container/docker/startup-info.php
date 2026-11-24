@@ -10,9 +10,9 @@ if (!is_string($dataDir) || !is_dir($dataDir) || is_link($dataDir)) {
     exit(1);
 }
 
-$setting = strtolower(trim(getenv('CONF_VCS_MOCK_MODE') ?: 'false'));
+$setting = strtolower(trim(getenv('CONF_MOCK_MODE') ?: 'false'));
 if (!in_array($setting, ['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'], true)) {
-    fwrite(STDERR, "CONF_VCS_MOCK_MODE_INVALID: expected boolean value\n");
+    fwrite(STDERR, "CONF_MOCK_MODE_INVALID: expected boolean value\n");
     exit(1);
 }
 $mockMode = in_array($setting, ['true', '1', 'yes', 'on'], true);
@@ -60,7 +60,7 @@ if ($listing !== false) {
 $lines = [
     'VCS STARTUP CONFIGURATION (one time per container start)',
     'CONF_DATA_DIR=' . $encode($dataDir),
-    'CONF_VCS_MOCK_MODE=' . ($mockMode ? 'true' : 'false'),
+    'CONF_MOCK_MODE=' . ($mockMode ? 'true' : 'false'),
     'worker_uid=' . $encode($uid) . ' worker_gid=' . $encode($gid)
         . ' supplementary_gids=' . $encode($groups),
     'data_owner_uid=' . $encode($owner) . ' data_owner_gid=' . $encode($group)
@@ -92,9 +92,9 @@ if ($mockMode) {
     $banner = str_repeat('=', 76);
     fwrite(STDERR, "\n" . $banner . "\n"
         . '!!! WARNING: VCS WORKER RUNNING IN MOCK MODE !!!' . "\n"
-        . 'CONF_VCS_MOCK_MODE=true - DEVELOPMENT / TEST ONLY' . "\n"
+        . 'CONF_MOCK_MODE=true - DEVELOPMENT / TEST ONLY' . "\n"
         . 'NO GIT OR SSH COMMANDS WILL RUN. PULL, PUSH AND COMMIT ARE SIMULATED.' . "\n"
         . 'Existing checkout directories are required and are never created by mock pull.' . "\n"
-        . 'For PRODUCTION: set CONF_VCS_MOCK_MODE=false in the worker environment.' . "\n"
+        . 'For PRODUCTION: set CONF_MOCK_MODE=false in the worker environment.' . "\n"
         . $banner . "\n\n");
 }

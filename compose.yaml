@@ -17,9 +17,9 @@ services:
     build: .
     environment:
       CONF_AMQ_CONNECTION: rabbitmq://micx:micx@rabbitmq:5672/
-      CONF_VCS_MOCK_MODE: "false"
+      CONF_MOCK_MODE: "false"
       CONF_DATA_DIR: /data
-      VCS_SSH_KEY_FILE: /run/secrets/ssh_key
+      CONF_SSH_KEY_FILE: /run/secrets/ssh_key
     secrets: [ssh_key]
     volumes:
       - data:/data

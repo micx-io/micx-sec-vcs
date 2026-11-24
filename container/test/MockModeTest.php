@@ -41,7 +41,7 @@ final class MockModeTest extends TestCase
         self::assertStringContainsString('Mock mode is active', $missingPull['error']['message']);
         self::assertStringContainsString($base . '/repo/main', $missingPull['error']['message']);
         self::assertStringContainsString('Development mode intended?', $missingPull['error']['message']);
-        self::assertStringContainsString('CONF_VCS_MOCK_MODE=false', $missingPull['error']['message']);
+        self::assertStringContainsString('CONF_MOCK_MODE=false', $missingPull['error']['message']);
         self::assertDirectoryDoesNotExist($base . '/repo/main');
 
         mkdir($base . '/repo/main', 0770, true);

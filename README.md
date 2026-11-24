@@ -1,119 +1,106 @@
-# MICX Sec VCS
+# MICX Sec VCS SDK
 
-Docker-Worker für Git-Operationen über RabbitMQ. Repository-URL, Branch und
-Checkout-Verzeichnis werden vom Client festgelegt; der SSH-Key bleibt im
-Worker. Die PHP-Nutzung steht im
-[SDK-Beispiel](https://github.com/micx-io/micx-sec-vcs-sdk/blob/main/examples/mixed-repositories.php)
-und in der [SDK-README](https://github.com/micx-io/micx-sec-vcs-sdk).
+PHP SDK für den Zugriff auf Git-Repositories über einen isolierten VCS-Worker.
+Die Anwendung benötigt keinen Git-SSH-Key: Er liegt als Secret ausschließlich
+beim Worker. Zwischen Anwendung und Worker liegt RabbitMQ; die Dateien
+stehen über ein gemeinsam gemountetes Volume bereit.
 
-## Docker Swarm
+Das gleiche API funktioniert lokal ohne Worker. Mock-Verzeichnisse können
+direkt im Anwendungsrepository liegen. Dadurch ist zwischen Entwicklung
+und Produktion keine eigene Git-Implementierung oder aufwendige
+Fallunterscheidung erforderlich.
 
-Das [Stack-Beispiel](stack.example.yml) startet RabbitMQ und den VCS-Worker
-ohne veröffentlichte Ports. Es verwendet das veröffentlichte Image
-`ghcr.io/micx-io/micx-sec-vcs:latest`.
+## Verwendung
 
-Vor dem Deploy den SSH-Private-Key als Docker-Secret anlegen:
+```php
+use Micx\Vcs\MixVcsManager;
 
-```sh
-docker swarm init
-docker secret create vcs_ssh_key /path/to/id_ed25519
-docker stack deploy -c stack.example.yml micx
+const DEVELOPMENT_MODE = true; // In Produktion false setzen.
+
+$manager = new MixVcsManager(
+    sharedDirectory: '/vcs-share',
+    connector: 'rabbitmq://user:password@rabbitmq:5672/micx.vcs.v1',
+);
+$manager->addMockDir(
+    'git@github.com:example/repo1.git',
+    'main',
+    __DIR__ . '/mock-repos/repo1'
+);
+
+// Mappings bleiben in beiden Umgebungen im Code; nur im Dev-Modus nutzen.
+$manager->setAllowMockDir(DEVELOPMENT_MODE);
+
+// Repo 1 verwendet im Development-Modus das registrierte Mock-Verzeichnis.
+$repo = $manager->getRepository('git@github.com:example/repo1.git', 'main');
+
+// Ohne Mock-Mapping bestimmt der dritte Parameter das Remote-Zielverzeichnis.
+$remote = $manager->getRepository('git@github.com:example/repo2.git', 'main', 'sites/repo2');
+$directory = $remote->getDirectory(); // /vcs-share/sites/repo2, auch vor dem Pull
 ```
 
-Die im Beispiel eingesetzten RabbitMQ-Zugangsdaten `micx/change-me`
-sind nur Platzhalter und müssen vor dem Einsatz ersetzt werden.
-Der Beispielstack setzt beide Services auf einen Manager-Node, weil die
-lokalen Docker-Volumes nicht automatisch zwischen Swarm-Nodes geteilt
-werden. Der Client benötigt dasselbe `vcs-data`-Volume, beispielsweise
-unter `/vcs-share`; bei mehreren Nodes wird ein gemeinsames
-Filesystem mit funktionierendem `flock` benötigt. Das Verzeichnis
-`/data` enthält Checkouts einschließlich `.git` und Git-Locks.
+Das Verzeichnis `/vcs-share` muss existieren und direkt als Root-Mount
+im App-Container bereitstehen. Im Worker ist dasselbe Volume unter
+`/data` eingebunden. Auch ein Mock-Verzeichnis muss bereits existieren.
 
-### Environment des Workers
+Der RabbitMQ-URL-Pfad bezeichnet den Topic-Exchange. Benutzername und
+Passwort dürfen im Connection-String stehen, wenn RabbitMQ ausschließlich
+über ein abgeschottetes privates Docker-Netzwerk erreichbar ist. Zugangsdaten
+dürfen dennoch nicht in Git eingecheckt oder protokolliert werden.
 
-`CONF_VCS_MOCK_MODE=true` aktiviert den serverseitigen Testmodus. Der Worker
-validiert weiterhin Repository, Branch und Pfad, erzeugt bei pull das
-Arbeitsverzeichnis, ruft aber niemals Git oder SSH auf und erstellt keine
-.git-Metadaten. Status und Historie sind simuliert. RPC-Erfolgs- und
-Fehlerantworten enthalten `mockMode: true`. Der Client kann den Modus
-nicht ändern.
+**Mock-Modus ist standardmäßig aus.** Registrierte Verzeichnisse bleiben
+auch in Produktion im Code, werden aber nur bei
+`setAllowMockDir(DEVELOPMENT_MODE)` mit `DEVELOPMENT_MODE = true` verwendet.
+Andernfalls nimmt der Manager ausschließlich gültig formatierte
+Git-Remote-URLs an; lokale Pfade und `file://` werden abgelehnt.
+Ohne RabbitMQ kann lokal auch `new MixVcsManager()` verwendet werden.
+
+## Repository-API
+
+`getRepository($url, $branch, $directory)` gibt sofort einen passiven Handle
+zurück; `$directory` ist ein relativer Pfad unter `sharedDirectory` und kann
+weggelassen werden. Standardmäßig bestimmt das Manager-Template
+`{repo}/{branch}` den Pfad; es lässt sich über
+`storageTemplate: 'sites/{repo}/{branch}'` ändern. `{repo}` ist der
+Repository-Basename ohne `.git`. `getDirectory()` liefert immer den
+absoluten Pfad, auch vor dem ersten Checkout, ohne RPC oder Dateisystemzugriff.
+Erst `pull()` legt das Repository an bzw. aktualisiert es. Bei jedem RPC
+sendet das SDK URL, Branch und das relative Zielverzeichnis. Es gibt keine
+Workspace-Registry, kein Server-Template und keinen vorbereitenden Ping.
+`sync()` führt Pull und Push aus, ohne automatisch zu committen.
+
+Weitere Methoden: `ping($timeout = 5.0)` (Mock: sofort `true`),
+`setCommitUser($name, $email)`, `commit()`, `push()`,
+`hasUnpushedChanges()`, `getHistory()`, `getBranches()`. Alle Backends implementieren
+`Micx\Vcs\Repository\VcsRepository`.
+
+`setCommitUser()` setzt die Git-Identität für spätere `commit()`-Aufrufe
+am aktuellen Repository-Handle. Dabei erfolgt kein RPC. Erst `commit()`
+überträgt `authorName` und `authorEmail` mit der Commit-Nachricht.
+Beide Werte gelten sowohl für den Git-Author als auch den Committer;
+ohne explizite Einstellung verwendet der Worker `MICX <micx@localhost>`.
+
+Siehe [das einzige vollständige Beispiel](examples/mixed-repositories.php).
 
 
-| Variable | Beispiel | Zweck |
+## Docker-Worker
+
+Der Docker-Worker ist unter `container/` mit eigener `composer.json` enthalten.
+Die Root-`composer.json` ist das Client-Paket.
+
+### Serverseitiger Mock Mode
+
+`CONF_VCS_MOCK_MODE=true` auf dem Worker simuliert Git-Operationen
+zu Testzwecken: Requests werden einschließlich URL, Branch und Pfad geprüft,
+`pull` erstellt das Arbeitsverzeichnis im Shared Volume, doch kein Git
+oder SSH wird gestartet. Es entstehen keine `.git`-Metadaten oder Commits.
+Die RPC-Response meldet `mockMode: true`, auch bei Fehlern. Der Client
+kann den Modus nicht ändern. Er unterscheidet sich von den lokalen
+Client-Mocks mit `VcsMockRepository`.
+
+| Worker-Variable | Standard | Beschreibung |
 |---|---|---|
-| `CONF_AMQ_CONNECTION` | `rabbitmq://micx:change-me@rabbitmq:5672/` | Einzige RabbitMQ-Verbindungskonfiguration |
-| `VCS_SSH_KEY_FILE` | `/run/secrets/vcs_ssh_key` | Pfad zum Docker-SSH-Secret |
-| `VCS_DATA_DIR` | `/data` (Standard) | Gemeinsames Checkout-Volume |
-| `CONF_VCS_MOCK_MODE` | `false` oder `true` | Git-freier serverseitiger Testbetrieb |
+| `CONF_VCS_MOCK_MODE` | `false` | Bei `true` keine Git-Ausführung; nur Tests |
+| `VCS_DATA_DIR` | `/data` | Shared Checkout-Volume |
+| `CONF_AMQ_CONNECTION` | `rabbitmq://micx:micx@rabbitmq:5672/` | RabbitMQ-URI |
 
-Die Connection-URI akzeptiert `rabbitmq://` und `amqp://`. Der Pfad
-steht für den **RabbitMQ-VHost** (Standard `/`), nicht für den
-RPC-Exchange `micx.vcs.v1`. Sonderzeichen in Credentials und VHost
-müssen URL-encoded sein. `amqps://` wird derzeit nicht unterstützt.
-
-### Berechtigungen der Checkouts
-
-Der Worker ändert weder Eigentümer noch Dateiberechtigungen im gemeinsamen
-Volume. Vor Git-Operationen auf bestehenden Checkouts sowie nach dem ersten
-Checkout und einem erfolgreichen `pull` prüft er, ob sein Prozess die
-Verzeichnisse lesen, beschreiben und betreten sowie reguläre Dateien lesen und
-beschreiben kann. Dateien unter `.git/objects/` müssen nur lesbar sein:
-Git speichert unveränderliche Objekte üblicherweise schreibgeschützt, etwa
-mit `0444`. Bei unzureichenden Rechten meldet der Worker einen `IO_ERROR`
-mit dem betroffenen Dateipfad beziehungsweise Verzeichnispfad. Symlinks
-werden nicht verfolgt.
-
-Der Worker läuft standardmäßig als UID/GID `10001:10001` und verwendet
-`umask 0000` für Git-Operationen. Neue Checkouts werden dadurch im
-Normalfall für alle Benutzer lesbar und beschreibbar angelegt:
-reguläre Dateien mit `0666`, Verzeichnisse mit `0777` und ausführbare
-Dateien mit `0777`. Programme (einschließlich Git) können für einzelne
-Dateien oder Metadaten ausdrücklich restriktivere Modi vorgeben; die
-`umask` garantiert daher nicht für jeden Pfad diese Berechtigungen.
-
-Andere Container und Prozesse, die in dieses Volume schreiben, müssen
-ebenfalls auf world-readable und world-writable Berechtigungen achten.
-Dafür sollte der jeweilige Schreibprozess `umask 0000` verwenden, damit
-neu angelegte Dateien normalerweise `0666` und Verzeichnisse `0777`
-erhalten. Eine abweichende `umask` (etwa `0022` oder `0007`) kann dazu
-führen, dass der VCS-Worker neue oder geänderte Dateien nicht mehr
-beschreiben kann. Die `umask` ändert bestehende Berechtigungen nicht.
-
-Der private Lock-Ordner `.mix-vcs-locks` ist von der Checkout-Prüfung
-ausgenommen. Die SSH-Schlüssel werden getrennt mit restriktiven Rechten
-(`0600`) angelegt.
-
-### Temporäre SSH-Host-Keys
-
-Der Worker legt bei jedem Containerstart eine **leere** Datei
-`/run/micx/known_hosts` im tmpfs an. Bei der ersten SSH-Verbindung
-werden unbekannte Host-Keys mit `StrictHostKeyChecking=accept-new`
-aufgenommen. Ein bereits bekannter, danach geänderter Host-Key wird
-abgewiesen. Beim Neustart des Containers wird die temporäre Host-Liste
-verworfen und neu angelegt. Es gibt weder ein persistent gespeichertes
-`known_hosts`-Secret noch eine eigene Environment-Option dafür.
-
-**Sicherheit:** Der erste Host-Key wird ohne vorherigen
-Authentizitätsnachweis akzeptiert (Trust on First Use). Das eignet sich
-nur für vertrauenswürdige Netzwerkumgebungen; ein Angreifer beim ersten
-Verbindungsaufbau könnte einen falschen Key präsentieren.
-
-## RPC und Fehlerbehandlung
-
-Die Methoden `ping`, `pull`, `push`, `commit`, `status`, `log`
-und `branches` entsprechen dem SDK. `commit` akzeptiert zusätzlich
-`authorName` und `authorEmail` (zusammen mit `message`); der Worker
-verwendet beide Angaben ausschließlich für den betreffenden Git-Commit
-als Author und Committer. Ohne Angaben bleibt die Identität
-`MICX <micx@localhost>`. Die Einstellung erfolgt über das SDK mit
-`$repo->setCommitUser($name, $email)`. Jeder Aufruf enthält Repository-URL,
-Branch und relativen Checkout-Pfad. Es gibt keinen State-Mount, keine
-Workspace-Registry und kein Request-Journal.
-
-Normale Git-Fehler liefern eine RPC-Fehlerantwort und werden nach
-bestätigter Antwort mit RabbitMQ-`ack` abgeschlossen; fehlerhafte
-Nachrichten werden nicht wieder in die Queue gestellt. Ein
-Verbindungsabbruch vor `ack` kann jedoch zur erneuten Zustellung führen.
-
-Weitere technische Details:
-[RPC-Protokoll](docs/2026-09-12-secure-vcs-rpc.md).
+[Container-Dokumentation](container/README.md).

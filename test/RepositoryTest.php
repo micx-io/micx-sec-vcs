@@ -236,7 +236,7 @@ final class RepositoryTest extends TestCase
         }
     }
 
-    public function testCommitUserTravelsOnlyWithCommitRpc(): void
+    public function testCommitUserTravelsWithPullAndCommitButNotPush(): void
     {
         $transport = new class implements RpcTransport {
             public array $requests = [];
@@ -262,7 +262,9 @@ final class RepositoryTest extends TestCase
         $repo->commit('Authored update');
         $repo->push();
 
-        self::assertArrayNotHasKey('authorName', $transport->requests[0]['params']);
+        self::assertSame('Jane Doe', $transport->requests[0]['params']['authorName']);
+        self::assertSame('jane@example.com', $transport->requests[0]['params']['authorEmail']);
+        self::assertSame('Save local changes before pull', $transport->requests[0]['params']['message']);
         self::assertSame('Jane Doe', $transport->requests[1]['params']['authorName']);
         self::assertSame('jane@example.com', $transport->requests[1]['params']['authorEmail']);
         self::assertSame('Authored update', $transport->requests[1]['params']['message']);

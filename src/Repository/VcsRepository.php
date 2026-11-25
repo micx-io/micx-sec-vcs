@@ -62,6 +62,34 @@ interface VcsRepository
     /** True for dirty files OR committed changes not yet published. */
     public function hasUnpushedChanges(): bool;
 
+    /**
+     * Reads exact committed file bytes without changing the checkout or index.
+     * HEAD refers to the local commit; a tag or full commit hash selects history.
+     * Missing local tags can be fetched from origin. Mocks have no file history.
+     *
+     * Example: $content = $repo->getFile('index.html', 'v1.0.0');
+     * @param string $path Repository-relative file path.
+     * @param string $revision HEAD, tag name or full local commit hash.
+     * @return string Original file contents, including binary data.
+     * @throws \Micx\Vcs\Exception\VcsException If unavailable or the RPC fails.
+     * @see self::getHistory()
+     */
+    public function getFile(string $path, string $revision = 'HEAD'): string;
+
+    /**
+     * Compares a selected revision or last known pushed state with the working tree or another revision.
+     * Includes untracked (non-ignored) files and locally committed changes.
+     * Missing tags may be fetched; never commits, stages or changes the working tree.
+     * @param ?string $revision Null for origin branch, otherwise HEAD, tag or full local commit hash.
+     * @param ?string $targetRevision Null for current working tree, otherwise HEAD, tag or full local commit hash.
+     *
+     * Example: $deleted = $repo->getChangedFiles()['deleted'];
+     * @return array{added:list<string>,modified:list<string>,deleted:list<string>}
+     * @throws \Micx\Vcs\Exception\VcsException If the comparison is unavailable.
+     * @see self::hasUnpushedChanges()
+     */
+    public function getChangedFiles(?string $revision = null, ?string $targetRevision = null): array;
+
     /** @return list<LogEntry> Most recent commits first. */
     public function getHistory(): array;
 

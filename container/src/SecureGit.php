@@ -252,6 +252,79 @@ final class SecureGit extends GitRepository
         return $changes;
     }
 
+    /**
+     * Lists net working-tree changes relative to a commit or local origin tracking ref.
+     * @return array{added:list<string>,modified:list<string>,deleted:list<string>}
+     * @throws Fault If Git cannot compare the working tree.
+     * @see self::hasUnpushedChanges()
+     */
+    public function getChangesSincePush(string $branch, ?string $base = null, ?string $target = null): array
+    {
+        // Ohne bisherigen Remote-Stand wird gegen den leeren Tree verglichen.
+        if ($base === null) {
+            $ref = 'refs/remotes/origin/' . Storage::branch($branch);
+            $base = trim($this->run(['for-each-ref', '--format=%(objectname)', $ref]));
+        }
+        if ($base === '') {
+            $base = trim($this->run(['hash-object', '-t', 'tree', '/dev/null']));
+        }
+
+        // Diff gegen den Remote-Stand umfasst Index und Working Tree.
+        $args = ['diff', '--name-status', '-z', '--no-renames', '--no-ext-diff', '--no-textconv', $base];
+        if ($target !== null) {
+            $args[] = $target;
+        }
+        $raw = $this->run([...$args, '--']);
+        $fields = explode("\0", rtrim($raw, "\0"));
+        $changes = [];
+        for ($i = 0; $i + 1 < count($fields); $i += 2) {
+            $changes[$fields[$i + 1]] = match ($fields[$i]) {
+                'A' => 'added',
+                'D' => 'deleted',
+                default => 'modified',
+            };
+        }
+
+        // Git diff kennt keine untracked Dateien; diese separat ergänzen.
+        if ($target === null) {
+            $untracked = $this->run(['ls-files', '--others', '--exclude-standard', '-z']);
+            foreach (explode("\0", rtrim($untracked, "\0")) as $path) {
+                if ($path === '') {
+                    continue;
+                }
+                $changes[$path] = ($changes[$path] ?? null) === 'deleted' ? 'modified' : 'added';
+            }
+        }
+
+        ksort($changes, SORT_STRING);
+        $result = ['added' => [], 'modified' => [], 'deleted' => []];
+        foreach ($changes as $path => $kind) {
+            $result[$kind][] = (string) $path;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Reads a blob directly from the Git object database, never the worktree.
+     * @param string $path Validated repository-relative path.
+     * @param string $ref Resolved commit object ID.
+     * @return string Original bytes, including trailing whitespace and NUL.
+     * @throws Fault If the revision or file cannot be read.
+     * @see self::getHistory()
+     */
+    public function readCommittedFile(string $path, string $ref): string
+    {
+        try {
+            return $this->run(['cat-file', 'blob', $ref . ':' . $path]);
+        } catch (Fault $e) {
+            if ($e->kind === 'GIT_FAILED') {
+                throw new Fault('GIT_FAILED', 'Cannot read committed file: ' . $path . ' at ' . $ref);
+            }
+            throw $e;
+        }
+    }
+
     public function getRev(): string
     {
         // A newly created repository has an unborn branch and no commit yet.

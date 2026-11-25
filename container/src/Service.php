@@ -19,7 +19,7 @@ final class Service
      * Executes a repository RPC from its URL, branch and client-chosen path.
      *
      * @param string $method SDK repository method: ping, pull, push, commit,
-     *                       status, log or branches.
+     *                       status, log, branches, getFile or getChangedFiles.
      * @param array<string,mixed> $params Required url, branch and directory.
      * @return array<string,mixed> RPC result.
      * @throws Fault Invalid parameters, unavailable Git or failed operation.
@@ -44,7 +44,7 @@ final class Service
             return ['pong' => true, 'ready' => $errors === [], 'errors' => $errors];
         }
 
-        if (!in_array($method, ['pull', 'push', 'commit', 'status', 'log', 'branches'], true)) {
+        if (!in_array($method, ['pull', 'push', 'commit', 'status', 'log', 'branches', 'getFile', 'getChangedFiles'], true)) {
             throw new Fault('UNKNOWN_METHOD', 'Unknown RPC method');
         }
 
@@ -162,6 +162,31 @@ final class Service
                     $git->commit($message, $authorName, $authorEmail);
                     break;
 
+                case 'getChangedFiles':
+                    $revision = $params['revision'] ?? null;
+                    if ($revision !== null && !is_string($revision)) {
+                        throw new Fault('INVALID_REQUEST', 'revision must be a string or null');
+                    }
+                    $targetRevision = $params['targetRevision'] ?? null;
+                    if ($targetRevision !== null && !is_string($targetRevision)) {
+                        throw new Fault('INVALID_REQUEST', 'targetRevision must be a string or null');
+                    }
+                    $base = $revision === null ? null : $this->resolveRevision($git, $revision);
+                    $target = $targetRevision === null ? null : $this->resolveRevision($git, $targetRevision);
+
+                    return $git->getChangesSincePush($branch, $base, $target);
+
+                case 'getFile':
+                    $path = Storage::relative($params['path'] ?? '');
+                    $revision = $params['revision'] ?? 'HEAD';
+                    if (!is_string($revision)) {
+                        throw new Fault('INVALID_REQUEST', 'revision must be a string');
+                    }
+
+                    return ['contentBase64' => base64_encode(
+                        $git->readCommittedFile($path, $this->resolveRevision($git, $revision))
+                    )];
+
                 case 'status':
                     return [
                         'revision' => $git->getRev(),
@@ -177,6 +202,34 @@ final class Service
 
             return ['revision' => $git->getRev()];
         });
+    }
+
+    /** Resolve a local commit or fetch a missing explicit tag without checkout. */
+    private function resolveRevision(SecureGit $git, string $revision): string
+    {
+        $ref = $revision;
+        if ($revision !== 'HEAD' && !preg_match('/^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/D', $revision)) {
+            $ref = 'refs/tags/' . Storage::branch($revision);
+            try {
+                $git->run(['show-ref', '--verify', '--quiet', $ref]);
+            } catch (Fault $e) {
+                if ($e->kind !== 'GIT_FAILED' || ($e->details['exitCode'] ?? null) !== 1) {
+                    throw $e;
+                }
+                $this->requireSsh();
+                // Fetch only this tag, without changing HEAD, index or worktree.
+                $git->run(['fetch', '--no-tags', '--no-write-fetch-head', 'origin', $ref . ':' . $ref]);
+            }
+        }
+
+        try {
+            return trim($git->run(['rev-parse', '--verify', '--end-of-options', $ref . '^{commit}']));
+        } catch (Fault $e) {
+            if ($e->kind === 'GIT_FAILED') {
+                throw new Fault('GIT_FAILED', 'Cannot resolve revision: ' . $revision);
+            }
+            throw $e;
+        }
     }
 
     /**
@@ -221,6 +274,12 @@ final class Service
                 );
             }
             $this->assertCheckoutPermissions($directory);
+            if ($method === 'getChangedFiles') {
+                throw new Fault('UNSUPPORTED', 'Mock mode does not store a pushed file state');
+            }
+            if ($method === 'getFile') {
+                throw new Fault('UNSUPPORTED', 'Mock mode does not store versioned file contents');
+            }
             if ($method === 'status') {
                 return ['revision' => '', 'hasUnpushedChanges' => false, 'mockMode' => true];
             }

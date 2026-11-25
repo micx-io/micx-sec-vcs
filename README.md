@@ -153,6 +153,8 @@ gemeinsamen `sharedDirectory`. Ohne Angabe gilt das Template
 | `push()` | Veröffentlicht lokale Commits im Remote. |
 | `sync()` | Führt `pull()` und danach `push()` aus; **auch die durch Pull automatisch erstellten Commits werden gepusht**. |
 | `hasUnpushedChanges()` | Erkennt Dirty Files und lokale, noch nicht gepushte Commits. |
+| `getFile($path, $revision = 'HEAD')` | Liest den committeten Dateiinhalt als String (auch binär), ohne Checkout oder Index zu ändern. Fehlende Tags werden gezielt von `origin` geholt. |
+| `getChangedFiles($revision = null, $targetRevision = null)` | Gibt `added`, `modified` und `deleted` als Listen relativer Pfade zurück. Standard: letzter lokal bekannter Stand von `origin/<branch>`; alternativ `HEAD`, Tag oder vollständiger lokaler Commit-Hash. Ohne Zielrevision wird gegen den aktuellen Working Tree verglichen, einschließlich lokaler Commits, staged/unstaged Änderungen und nicht ignorierter neuer Dateien. Mit Zielrevision werden zwei Commit-Stände verglichen. |
 | `getHistory()` | Gibt die Commit-Historie zurück. |
 | `getBranches()` | Gibt die Branches zurück. |
 | `ping($timeout = 5.0)` | Prüft die Erreichbarkeit des Backends. |

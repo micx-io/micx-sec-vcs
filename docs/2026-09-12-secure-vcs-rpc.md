@@ -81,6 +81,24 @@ nicht an Clients durchgereicht.
 | `status` | — | `revision`, `hasUnpushedChanges` |
 | `log` | — | `entries` |
 | `branches` | — | `branches` |
+| `getFile` | `path`, optional `revision` (Standard `HEAD`) | `contentBase64` |
+| `getChangedFiles` | optional `revision` (`null` = Remote-Tracking-Ref), optional `targetRevision` (`null` = Working Tree) | `added`, `modified`, `deleted` (Listen relativer Pfade) |
+
+`getChangedFiles` vergleicht den Working Tree standardmäßig mit dem lokalen
+Remote-Tracking-Ref `origin/<branch>`. Ohne bisherigen Remote-Stand dient
+der leere Tree als Basis. Alternativ kann `HEAD`, ein vollständiger lokaler
+Commit-Hash oder ein Tagname angegeben werden. Mit `targetRevision` wird
+statt des Working Trees ein zweiter Commit-Stand verglichen. Nur fehlende Tags werden
+gezielt nachgeladen. Ignorierte neue Dateien werden nicht gelistet,
+Umbenennungen als Löschung plus Neuanlage. Beide Mock-Modi melden
+`UNSUPPORTED`, da kein dateibezogener Push-Stand gespeichert wird.
+
+`getFile` liest Dateibytes aus dem Git-Objektspeicher; auch binäre Dateien
+werden unverändert übertragen (Base64). `revision` ist `HEAD`, ein
+vollständiger lokaler Commit-Hash oder ein Tagname. Fehlende Tags werden
+gezielt von `origin` geholt, ohne Index oder Working Tree zu verändern.
+Es gelten die bestehenden Git-Ausgabe- und RPC-Größenlimits. Mocks melden
+`UNSUPPORTED`, da sie keine versionierten Dateiinhalte speichern.
 
 `authorName` und `authorEmail` müssen gemeinsam angegeben werden.
 Sie setzen nur für diesen `commit` den Git-Author und Committer; die

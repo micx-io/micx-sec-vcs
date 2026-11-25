@@ -188,6 +188,26 @@ final class VcsMockRepository implements VcsRepository
             || ($journal['history'][0]['id'] ?? null) !== ($journal['pushedCommit'] ?? null);
     }
 
+    /** @inheritDoc */
+    public function getFile(string $path, string $revision = 'HEAD'): string
+    {
+        throw new OperationFailedException(
+            ErrorCode::UNSUPPORTED_OPERATION,
+            'Mock-Repositories speichern keine versionierten Dateiinhalte: ' . $path,
+            'getFile'
+        );
+    }
+
+    /** @inheritDoc */
+    public function getChangedFiles(?string $revision = null, ?string $targetRevision = null): array
+    {
+        throw new OperationFailedException(
+            ErrorCode::UNSUPPORTED_OPERATION,
+            'Mock-Repositories speichern keinen dateibezogenen Push-Stand.',
+            'getChangedFiles'
+        );
+    }
+
     public function getHistory(): array
     {
         $this->getDirectory();

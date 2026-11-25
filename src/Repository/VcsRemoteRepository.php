@@ -142,6 +142,35 @@ final class VcsRemoteRepository implements VcsRepository
         return $status['hasUnpushedChanges'];
     }
 
+    /** @inheritDoc */
+    public function getFile(string $path, string $revision = 'HEAD'): string
+    {
+        $result = $this->client()->call('getFile', $this->params() + ['path' => $path, 'revision' => $revision]);
+        $encoded = $result['contentBase64'] ?? null;
+        $content = is_string($encoded) ? base64_decode($encoded, true) : false;
+        if ($content === false) {
+            throw new InternalException(ErrorCode::INVALID_RESPONSE, 'Worker liefert keinen gültigen Dateiinhalt.', 'getFile');
+        }
+
+        return $content;
+    }
+
+    /** @inheritDoc */
+    public function getChangedFiles(?string $revision = null, ?string $targetRevision = null): array
+    {
+        $result = $this->client()->call('getChangedFiles', $this->params() + ['revision' => $revision, 'targetRevision' => $targetRevision]);
+        $changes = [];
+        foreach (['added', 'modified', 'deleted'] as $kind) {
+            $paths = $result[$kind] ?? null;
+            if (!is_array($paths) || !array_is_list($paths) || count(array_filter($paths, 'is_string')) !== count($paths)) {
+                throw new InternalException(ErrorCode::INVALID_RESPONSE, 'Worker liefert keine gültige Dateiliste.', 'getChangedFiles');
+            }
+            $changes[$kind] = $paths;
+        }
+
+        return $changes;
+    }
+
     /** @return list<LogEntry> @see self::getBranches() */
     public function getHistory(): array
     {

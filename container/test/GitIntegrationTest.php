@@ -90,6 +90,51 @@ final class GitIntegrationTest extends TestCase
         self::assertSame('First', $service->execute('log', $params)['entries'][0]['message']);
         self::assertSame('main', $service->execute('branches', $params)['branches'][0]['name']);
 
+        $git->run(['tag', '-a', 'v1.0', '-m', 'First release']);
+        file_put_contents($directory . '/hello.txt', "Second\0version\n");
+        $service->execute('commit', $params + ['message' => 'Second']);
+        file_put_contents($directory . '/hello.txt', 'Uncommitted');
+        $head = $git->getRev();
+        $status = $git->run(['status', '--porcelain=v1']);
+        $fileParams = $params + ['path' => 'hello.txt'];
+        self::assertSame(base64_encode("Second\0version\n"), $service->execute('getFile', $fileParams)['contentBase64']);
+        self::assertSame(base64_encode('Hello'), $service->execute('getFile', $fileParams + ['revision' => 'v1.0'])['contentBase64']);
+        self::assertSame(base64_encode('Hello'), $service->execute('getFile', $fileParams + ['revision' => $committed['revision']])['contentBase64']);
+        self::assertSame('Uncommitted', file_get_contents($directory . '/hello.txt'));
+        self::assertSame($head, $git->getRev());
+        self::assertSame($status, $git->run(['status', '--porcelain=v1']));
+
+        // Compare with the last known remote state, not with local HEAD.
+        file_put_contents($directory . '/deleted.txt', 'delete me');
+        $service->execute('commit', $params + ['message' => 'Published']);
+        $git->run(['update-ref', 'refs/remotes/origin/main', $git->getRev()]);
+        $git->run(['tag', 'published']);
+        file_put_contents($directory . '/hello.txt', 'Local commit');
+        $service->execute('commit', $params + ['message' => 'Local only']);
+        unlink($directory . '/deleted.txt');
+        file_put_contents($directory . '/added.txt', 'Untracked');
+        file_put_contents($directory . '/staged.txt', 'Staged');
+        $git->run(['add', '--', 'staged.txt']);
+        $head = $git->getRev();
+        $status = $git->run(['status', '--porcelain=v1']);
+        $expected = ['added' => ['added.txt', 'staged.txt'], 'modified' => ['hello.txt'], 'deleted' => ['deleted.txt']];
+        self::assertSame($expected, $service->execute('getChangedFiles', $params));
+        self::assertSame($expected, $service->execute('getChangedFiles', $params + ['revision' => 'published']));
+        self::assertSame(
+            ['added' => ['added.txt', 'staged.txt'], 'modified' => ['hello.txt'], 'deleted' => []],
+            $service->execute('getChangedFiles', $params + ['revision' => $committed['revision']])
+        );
+        self::assertSame(
+            ['added' => ['added.txt', 'staged.txt'], 'modified' => [], 'deleted' => ['deleted.txt']],
+            $service->execute('getChangedFiles', $params + ['revision' => 'HEAD'])
+        );
+        self::assertSame(
+            ['added' => ['deleted.txt'], 'modified' => ['hello.txt'], 'deleted' => []],
+            $service->execute('getChangedFiles', $params + ['revision' => 'v1.0', 'targetRevision' => 'published'])
+        );
+        self::assertSame($head, $git->getRev());
+        self::assertSame($status, $git->run(['status', '--porcelain=v1']));
+
         try {
             $service->execute('status', array_replace($params, ['directory' => '../invalid']));
             self::fail('Traversal accepted');

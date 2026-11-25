@@ -203,6 +203,8 @@ final class RepositoryTest extends TestCase
                         'status' => ['hasUnpushedChanges' => false],
                         'log' => ['entries' => []],
                         'branches' => ['branches' => []],
+                        'getChangedFiles' => ['added' => ['new.txt'], 'modified' => ['file.txt'], 'deleted' => ['old.txt']],
+                        'getFile' => ['contentBase64' => base64_encode("file\0bytes\n")],
                         default => ['revision' => ''],
                     },
                 ];
@@ -222,9 +224,21 @@ final class RepositoryTest extends TestCase
         self::assertFalse($repo->hasUnpushedChanges());
         self::assertSame([], $repo->getHistory());
         self::assertSame([], $repo->getBranches());
+        self::assertSame("file\0bytes\n", $repo->getFile('file.txt'));
+        self::assertSame("file\0bytes\n", $repo->getFile('file.txt', 'v1.0'));
+        self::assertSame('HEAD', $transport->requests[7]['params']['revision']);
+        self::assertSame('v1.0', $transport->requests[8]['params']['revision']);
+        self::assertSame('file.txt', $transport->requests[8]['params']['path']);
+        $expected = ['added' => ['new.txt'], 'modified' => ['file.txt'], 'deleted' => ['old.txt']];
+        self::assertSame($expected, $repo->getChangedFiles());
+        self::assertSame($expected, $repo->getChangedFiles('v1.0'));
+        self::assertNull($transport->requests[9]['params']['revision']);
+        self::assertSame('v1.0', $transport->requests[10]['params']['revision']);
+        self::assertSame($expected, $repo->getChangedFiles('v1.0', 'v2.0'));
+        self::assertSame('v2.0', $transport->requests[11]['params']['targetRevision']);
 
         self::assertSame(
-            ['pull', 'commit', 'pull', 'push', 'status', 'log', 'branches'],
+            ['pull', 'commit', 'pull', 'push', 'status', 'log', 'branches', 'getFile', 'getFile', 'getChangedFiles', 'getChangedFiles', 'getChangedFiles'],
             array_column($transport->requests, 'method')
         );
         foreach ($transport->requests as $request) {

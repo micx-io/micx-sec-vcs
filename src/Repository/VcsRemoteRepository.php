@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Micx\Vcs\Repository;
 
 use Micx\Vcs\Dto\BranchInfo;
+use Micx\Vcs\Dto\ChangeSet;
 use Micx\Vcs\Dto\LogEntry;
 use Micx\Vcs\Exception\ErrorCode;
 use Micx\Vcs\Exception\InternalException;
@@ -160,12 +161,14 @@ final class VcsRemoteRepository implements VcsRepository
     {
         $result = $this->client()->call('getChangedFiles', $this->params() + ['revision' => $revision, 'targetRevision' => $targetRevision]);
         $changes = [];
-        foreach (['added', 'modified', 'deleted'] as $kind) {
+        foreach (['added' => 'created', 'modified' => 'changed', 'deleted' => 'deleted'] as $kind => $change) {
             $paths = $result[$kind] ?? null;
             if (!is_array($paths) || !array_is_list($paths) || count(array_filter($paths, 'is_string')) !== count($paths)) {
                 throw new InternalException(ErrorCode::INVALID_RESPONSE, 'Worker liefert keine gültige Dateiliste.', 'getChangedFiles');
             }
-            $changes[$kind] = $paths;
+            foreach ($paths as $path) {
+                $changes[] = new ChangeSet($path, $change);
+            }
         }
 
         return $changes;

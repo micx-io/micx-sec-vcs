@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use Micx\Vcs\MixSecVcsClient;
+use Micx\Vcs\Dto\ChangeSet;
 use Micx\Vcs\Repository\VcsRepository;
 use Micx\Vcs\Repository\VcsRemoteRepository;
 use Micx\Vcs\Repository\VcsMockRepository;
@@ -229,12 +230,16 @@ final class RepositoryTest extends TestCase
         self::assertSame('HEAD', $transport->requests[7]['params']['revision']);
         self::assertSame('v1.0', $transport->requests[8]['params']['revision']);
         self::assertSame('file.txt', $transport->requests[8]['params']['path']);
-        $expected = ['added' => ['new.txt'], 'modified' => ['file.txt'], 'deleted' => ['old.txt']];
-        self::assertSame($expected, $repo->getChangedFiles());
-        self::assertSame($expected, $repo->getChangedFiles('v1.0'));
+        $expected = [
+            new ChangeSet('new.txt', 'created'),
+            new ChangeSet('file.txt', 'changed'),
+            new ChangeSet('old.txt', 'deleted'),
+        ];
+        self::assertEquals($expected, $repo->getChangedFiles());
+        self::assertEquals($expected, $repo->getChangedFiles('v1.0'));
         self::assertNull($transport->requests[9]['params']['revision']);
         self::assertSame('v1.0', $transport->requests[10]['params']['revision']);
-        self::assertSame($expected, $repo->getChangedFiles('v1.0', 'v2.0'));
+        self::assertEquals($expected, $repo->getChangedFiles('v1.0', 'v2.0'));
         self::assertSame('v2.0', $transport->requests[11]['params']['targetRevision']);
 
         self::assertSame(

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Micx\Vcs\Repository;
 
 use Micx\Vcs\Dto\BranchInfo;
+use Micx\Vcs\Dto\ChangeSet;
 use Micx\Vcs\Dto\LogEntry;
 
 interface VcsRepository
@@ -83,8 +84,8 @@ interface VcsRepository
      * @param ?string $revision Null for origin branch, otherwise HEAD, tag or full local commit hash.
      * @param ?string $targetRevision Null for current working tree, otherwise HEAD, tag or full local commit hash.
      *
-     * Example: $deleted = $repo->getChangedFiles()['deleted'];
-     * @return array{added:list<string>,modified:list<string>,deleted:list<string>}
+     * Example: foreach ($repo->getChangedFiles() as $change) { echo $change->filename; }
+     * @return list<ChangeSet> One entry per file with a relative filename and change type.
      * @throws \Micx\Vcs\Exception\VcsException If the comparison is unavailable.
      * @see self::hasUnpushedChanges()
      */

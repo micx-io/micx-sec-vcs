@@ -275,7 +275,12 @@ final class Service
             }
             $this->assertCheckoutPermissions($directory);
             if ($method === 'getChangedFiles') {
-                throw new Fault('UNSUPPORTED', 'Mock mode does not store a pushed file state');
+                return [
+                    'added' => ['mock_created.txt'],
+                    'modified' => ['mock_modified.txt'],
+                    'deleted' => ['mock_deleted.txt'],
+                    'mockMode' => true,
+                ];
             }
             if ($method === 'getFile') {
                 throw new Fault('UNSUPPORTED', 'Mock mode does not store versioned file contents');

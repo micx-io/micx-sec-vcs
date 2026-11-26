@@ -10,6 +10,7 @@ use Micx\Vcs\Exception\OperationFailedException;
 use Micx\Vcs\Exception\RepositoryNotReadyException;
 
 use Micx\Vcs\Dto\BranchInfo;
+use Micx\Vcs\Dto\ChangeSet;
 use Micx\Vcs\Dto\LogEntry;
 
 /**
@@ -201,11 +202,12 @@ final class VcsMockRepository implements VcsRepository
     /** @inheritDoc */
     public function getChangedFiles(?string $revision = null, ?string $targetRevision = null): array
     {
-        throw new OperationFailedException(
-            ErrorCode::UNSUPPORTED_OPERATION,
-            'Mock-Repositories speichern keinen dateibezogenen Push-Stand.',
-            'getChangedFiles'
-        );
+        $this->getDirectory();
+        return [
+            new ChangeSet('mock_created.txt', 'created'),
+            new ChangeSet('mock_modified.txt', 'changed'),
+            new ChangeSet('mock_deleted.txt', 'deleted'),
+        ];
     }
 
     public function getHistory(): array

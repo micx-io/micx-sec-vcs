@@ -131,6 +131,20 @@ Die lokalen Client-Mocks unterscheiden sich vom **serverseitigen**
 schon existieren, auch bei `pull`. Ein fehlender Checkout liefert
 `NOT_FOUND`. In Production bleibt der Mock Mode deaktiviert.
 
+`getChangedFiles()` liefert sowohl im lokalen Client-Mock als auch im
+serverseitigen Mock Mode immer drei simulierte Änderungen:
+
+| Dateiname | `ChangeSet::change` |
+| --- | --- |
+| `mock_created.txt` | `created` |
+| `mock_modified.txt` | `changed` |
+| `mock_deleted.txt` | `deleted` |
+
+Diese Einträge sind unabhängig vom tatsächlichen Datei- oder Push-Stand und
+von den übergebenen Revisionen. Die Dateien werden dadurch nicht angelegt,
+verändert oder gelöscht. Der Worker liefert hierfür die Listen `added`,
+`modified` und `deleted`; der Client übersetzt sie in `ChangeSet`-Objekte.
+
 Siehe das [vollständige PHP-Beispiel](examples/mixed-repositories.php)
 und die [Container-Dokumentation mit Docker-Swarm, Volumes,
 Berechtigungen und Startup-Logs](container/README.md).

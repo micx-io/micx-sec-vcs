@@ -163,21 +163,21 @@ Verbindungsaufbau könnte einen falschen Key präsentieren.
 
 `pull()` ist der normale Weg, um einen Checkout erstmals anzulegen oder
 einen vorhandenen Checkout für die Dateibearbeitung zu aktualisieren.
-Bei vorhandenen uncommitted Änderungen erstellt der Worker **zuerst
-einen lokalen Commit** (Standard-Message
-`Save local changes before pull`, anpassbar per
-`$repo->pull('Eigene Commit-Message')`), holt dann Remote-Änderungen und
-führt den Merge aus. Ein `pull()` macht **niemals Push**. Der SDK-Handle
-berücksichtigt eine zuvor gesetzte `setCommitUser()`-Identität.
-Die beiden Operationen laufen gemeinsam innerhalb der Repository-Sperre.
-`sync()` führt danach ausdrücklich einen Push aus, auch für automatisch
-erstellte Commits. Im serverseitigen Mock Mode wird Git nicht ausgeführt,
-das gewünschte Verzeichnis muss bereits existieren.
+Lokale Änderungen werden temporär gestasht und nach der Remote-Integration
+wieder als uncommitteter Entwurf hergestellt. Bei Konflikten gewinnt
+die lokale Seite (Accept Mine), konfliktfreie Remote-Änderungen bleiben
+erhalten. `push($message)` erstellt bei Bedarf einen Commit und pusht
+ohne Force; neuere Remote-Commits werden mit lokaler Konfliktpräferenz
+integriert. `sync()` kombiniert beide Operationen.
+Siehe [ARCHITECTURE.md](../ARCHITECTURE.md).
+
+Im serverseitigen Mock Mode wird Git nicht ausgeführt; das gewünschte
+Verzeichnis muss bereits existieren.
 
 ## RPC und Fehlerbehandlung
 
 Die Methoden `ping`, `pull`, `push`, `commit`, `status`, `log`
-und `branches` entsprechen dem SDK. `commit` akzeptiert zusätzlich
+und `branches` entsprechen dem SDK. `commit` und `push` akzeptieren zusätzlich
 `authorName` und `authorEmail` (zusammen mit `message`); der Worker
 verwendet beide Angaben ausschließlich für den betreffenden Git-Commit
 als Author und Committer. Ohne Angaben bleibt die Identität

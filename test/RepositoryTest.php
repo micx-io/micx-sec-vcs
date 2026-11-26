@@ -101,7 +101,7 @@ final class RepositoryTest extends TestCase
         }
     }
 
-    public function testPullCommitsDirtyLocalMockWithoutPush(): void
+    public function testPullPreservesDirtyLocalMockUntilPush(): void
     {
         $directory = sys_get_temp_dir() . '/micx-pull-mock-' . bin2hex(random_bytes(8));
         mkdir($directory);
@@ -115,11 +115,14 @@ final class RepositoryTest extends TestCase
             self::assertCount(0, $repo->getHistory());
             file_put_contents($directory . '/draft.txt', 'local');
             $repo->pull('Preserve dirty work');
-            self::assertSame('Preserve dirty work', $repo->getHistory()[0]->message);
+            self::assertCount(0, $repo->getHistory());
             self::assertTrue($repo->hasUnpushedChanges());
             $repo->pull();
-            self::assertCount(1, $repo->getHistory());
+            self::assertCount(0, $repo->getHistory());
             self::assertSame('local', file_get_contents($directory . '/draft.txt'));
+            $repo->push('Publish draft');
+            self::assertSame('Publish draft', $repo->getHistory()[0]->message);
+            self::assertFalse($repo->hasUnpushedChanges());
         } finally {
             foreach (glob($directory . '/{*,.*}', GLOB_BRACE) ?: [] as $file) {
                 if (is_file($file)) {
@@ -130,7 +133,7 @@ final class RepositoryTest extends TestCase
         }
     }
 
-    public function testRemotePullPassesCommitMessageAndIdentityInOneRpc(): void
+    public function testRemotePullDoesNotSendCommitMessageOrIdentity(): void
     {
         $transport = new class implements RpcTransport {
             public array $requests = [];
@@ -149,9 +152,9 @@ final class RepositoryTest extends TestCase
         $repo->pull('My local savepoint');
         self::assertCount(1, $transport->requests);
         self::assertSame('pull', $transport->requests[0]['method']);
-        self::assertSame('My local savepoint', $transport->requests[0]['params']['message']);
-        self::assertSame('Jane Doe', $transport->requests[0]['params']['authorName']);
-        self::assertSame('jane@example.com', $transport->requests[0]['params']['authorEmail']);
+        self::assertArrayNotHasKey('message', $transport->requests[0]['params']);
+        self::assertArrayNotHasKey('authorName', $transport->requests[0]['params']);
+        self::assertArrayNotHasKey('authorEmail', $transport->requests[0]['params']);
         self::assertSame('demo/checkout', $transport->requests[0]['params']['directory']);
     }
 
@@ -259,7 +262,7 @@ final class RepositoryTest extends TestCase
         }
     }
 
-    public function testCommitUserTravelsWithPullAndCommitButNotPush(): void
+    public function testCommitUserTravelsWithCommitAndPushButNotPull(): void
     {
         $transport = new class implements RpcTransport {
             public array $requests = [];
@@ -285,13 +288,15 @@ final class RepositoryTest extends TestCase
         $repo->commit('Authored update');
         $repo->push();
 
-        self::assertSame('Jane Doe', $transport->requests[0]['params']['authorName']);
-        self::assertSame('jane@example.com', $transport->requests[0]['params']['authorEmail']);
-        self::assertSame('Save local changes before pull', $transport->requests[0]['params']['message']);
+        self::assertArrayNotHasKey('authorName', $transport->requests[0]['params']);
+        self::assertArrayNotHasKey('authorEmail', $transport->requests[0]['params']);
+        self::assertArrayNotHasKey('message', $transport->requests[0]['params']);
         self::assertSame('Jane Doe', $transport->requests[1]['params']['authorName']);
         self::assertSame('jane@example.com', $transport->requests[1]['params']['authorEmail']);
         self::assertSame('Authored update', $transport->requests[1]['params']['message']);
-        self::assertArrayNotHasKey('authorName', $transport->requests[2]['params']);
+        self::assertSame('Jane Doe', $transport->requests[2]['params']['authorName']);
+        self::assertSame('jane@example.com', $transport->requests[2]['params']['authorEmail']);
+        self::assertSame('Update workspace', $transport->requests[2]['params']['message']);
 
         $other = $manager->getRepository('git@example.test:author.git', 'main', 'author/main');
         $other->commit('Default author');

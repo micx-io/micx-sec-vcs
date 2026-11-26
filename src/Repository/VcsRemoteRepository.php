@@ -71,20 +71,15 @@ final class VcsRemoteRepository implements VcsRepository
     }
 
     /**
-     * Initialize the checkout or commit dirty files before pulling; never pushes.
-     * Commit identity configured through setCommitUser() is respected.
+     * Initialize or refresh the checkout without committing the draft.
+     * Local edits win conflicts; the legacy message is ignored.
      */
     public function pull(string $message = 'Save local changes before pull'): void
     {
-        $params = $this->params() + ['message' => $message];
-        if ($this->commitName !== null) {
-            $params['authorName'] = $this->commitName;
-            $params['authorEmail'] = $this->commitEmail;
-        }
-        $this->client()->call('pull', $params);
+        $this->client()->call('pull', $this->params());
     }
 
-    /** Pulls (committing dirty files first) then pushes. @see self::pull() */
+    /** Pulls, then commits the draft and pushes. @see self::pull() */
     public function sync(): void
     {
         $this->pull();
@@ -93,7 +88,7 @@ final class VcsRemoteRepository implements VcsRepository
 
     /**
      * Sets the identity used for future commit() calls on this repository handle.
-     * No RPC is sent until commit() is invoked, and other handles are unaffected.
+     * No RPC is sent until commit() or push() is invoked, and other handles are unaffected.
      *
      * Example: $repo->setCommitUser('Jane Doe', 'jane@example.com');
      *
@@ -126,10 +121,15 @@ final class VcsRemoteRepository implements VcsRepository
         $this->client()->call('commit', $params);
     }
 
-    /** Publishes local commits. @see self::commit() */
-    public function push(): void
+    /** Commits and publishes the draft with local conflict preference in one RPC. @see self::commit() */
+    public function push(string $message = 'Update workspace'): void
     {
-        $this->client()->call('push', $this->params());
+        $params = $this->params() + ['message' => $message];
+        if ($this->commitName !== null) {
+            $params['authorName'] = $this->commitName;
+            $params['authorEmail'] = $this->commitEmail;
+        }
+        $this->client()->call('push', $params);
     }
 
     /** Returns true for dirty or unpushed commits. @see self::getHistory() */

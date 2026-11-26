@@ -199,6 +199,59 @@ final class GitIntegrationTest extends TestCase
         self::assertSame('',$git->run(['status','--porcelain']));
         self::assertCount(3,explode(' ',trim($git->run(['rev-list','--parents','-n','1','HEAD']))));
     }
+    public function testPullPreservesDirtyDraftAndPurgeRestoresPublishedTree(): void
+    {
+        $base = sys_get_temp_dir() . '/micx-draft-' . bin2hex(random_bytes(8));
+        mkdir($base . '/work', 0777, true);
+        $work = $base . '/work';
+        $git = new SecureGit('git@example.test:repo.git', $work, $base . '/private.git', $base . '/key', $base . '/known_hosts');
+        $git->initialize('main', true);
+        file_put_contents($work . '/content.txt', "base\n");
+        file_put_contents($work . '/delete.txt', "base\n");
+        file_put_contents($work . '/restore.txt', "base\n");
+        $git->commit('Base');
+        $git->run(['checkout', '-b', 'incoming']);
+        file_put_contents($work . '/content.txt', "remote\n");
+        file_put_contents($work . '/delete.txt', "remote\n");
+        unlink($work . '/restore.txt');
+        file_put_contents($work . '/both.txt', 'remote creation');
+        file_put_contents($work . '/remote-only.txt', 'remote only');
+        $git->commit('Remote');
+        $published = $git->getRev();
+        $git->run(['checkout', 'main']);
+        file_put_contents($work . '/content.txt', "draft\n");
+        unlink($work . '/delete.txt');
+        file_put_contents($work . '/restore.txt', "draft\n");
+        file_put_contents($work . '/both.txt', 'draft creation');
+        file_put_contents($work . '/draft-only.txt', 'draft only');
+        $git->run(['update-ref', 'refs/remotes/origin/main', $published]);
+        $git->integrateRemote('refs/remotes/origin/main');
+
+        self::assertSame($published, $git->getRev());
+        self::assertSame("draft\n", file_get_contents($work . '/content.txt'));
+        self::assertFileDoesNotExist($work . '/delete.txt');
+        self::assertSame("draft\n", file_get_contents($work . '/restore.txt'));
+        self::assertSame('draft creation', file_get_contents($work . '/both.txt'));
+        self::assertSame('draft only', file_get_contents($work . '/draft-only.txt'));
+        self::assertSame('remote only', file_get_contents($work . '/remote-only.txt'));
+        self::assertSame('', $git->run(['ls-files', '--unmerged']));
+        self::assertSame('', $git->run(['stash', 'list']));
+        self::assertTrue($git->hasUnpushedChanges());
+
+        // Pulling an unchanged upstream again does not create a draft commit.
+        $git->integrateRemote('refs/remotes/origin/main');
+        self::assertSame($published, $git->getRev());
+        self::assertSame('draft only', file_get_contents($work . '/draft-only.txt'));
+
+        $git->purgeChanged('main');
+        self::assertSame("remote\n", file_get_contents($work . '/content.txt'));
+        self::assertFileExists($work . '/delete.txt');
+        self::assertFileDoesNotExist($work . '/restore.txt');
+        self::assertFileDoesNotExist($work . '/draft-only.txt');
+        self::assertFalse($git->hasUnpushedChanges());
+        self::assertSame($published, $git->getRev());
+    }
+
     public function testCheckoutAndMergeCreateSharedFilesWithPrivateGitMetadata(): void
     {
         $base = sys_get_temp_dir() . '/micx-shared-' . bin2hex(random_bytes(8));

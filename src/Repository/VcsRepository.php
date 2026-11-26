@@ -25,15 +25,15 @@ interface VcsRepository
     public function getDirectory(): string;
 
     /**
-     * Ensure checkout exists, committing dirty local files before pulling.
-     * Uses the supplied message for an automatic local commit; never pushes.
-     * The worker prefers local contents if merging encounters conflicts.
+     * Ensure checkout exists or refresh it, preserving uncommitted drafts.
+     * Local contents win conflicts. Never commits the draft or pushes.
+     * The legacy message parameter is accepted but ignored.
      */
     public function pull(string $message = 'Save local changes before pull'): void;
 
     /**
-     * Pull remote changes (auto-committing dirty files first), then push local commits.
-     * Remote pull retains the worker's own-changes-win conflict strategy.
+     * Pull remote changes, then commit and publish the resulting local draft.
+     * Local changes win conflicts.
      * Example: $repo->sync();
      * @see self::pull()
      * @see self::push()
@@ -57,8 +57,8 @@ interface VcsRepository
     /** Record working tree changes without publishing them. */
     public function commit(string $message = 'Update workspace'): void;
 
-    /** Publish local commits to the remote. */
-    public function push(): void;
+    /** Commit current changes and publish with local conflict preference without force. */
+    public function push(string $message = 'Update workspace'): void;
 
     /** Discard local commits and all non-ignored changes since the last known published state. */
     public function purgeChanged(): void;

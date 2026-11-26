@@ -5,6 +5,8 @@ use Phore\VCS\Git\GitRepository;
 /** phore/vcs adapter: replaces shell execution and insecure SSH defaults. */
 final class SecureGit extends GitRepository
 {
+    private const PULL_STASH_MESSAGE = 'MICX pull recovery';
+
     public function __construct(string $url, private string $work, private string $gitDir, private string $key, private string $knownHosts)
     {
         parent::__construct($url, $work, 'MICX', 'micx@localhost');
@@ -23,7 +25,8 @@ final class SecureGit extends GitRepository
             'GIT_ATTR_NOSYSTEM'=>'1', 'GIT_NO_REPLACE_OBJECTS'=>'1'];
         // Nur Working-Tree-Schreiboperationen benötigen eine offene umask.
         // Git verwaltet Metadaten weiterhin mit privaten Rechten.
-        $writesWorktree = in_array($args[0] ?? '', ['checkout', 'merge', 'reset'], true);
+        $writesWorktree = in_array($args[0] ?? '', ['checkout', 'merge', 'reset'], true)
+            || (($args[0] ?? '') === 'stash' && ($args[1] ?? '') === 'push');
         if ($writesWorktree) {
             array_push($base, '-c', 'core.sharedRepository=0600');
         }
@@ -88,41 +91,184 @@ final class SecureGit extends GitRepository
     }
     public function pull()
     {
+        $this->assertNoPendingPullStash();
         $branch = trim($this->run(['symbolic-ref', '--short', 'HEAD']));
-        $this->run(['fetch', '--no-tags', 'origin', '+refs/heads/'.$branch.':refs/remotes/origin/'.$branch]);
-        $this->mergeOurs('refs/remotes/origin/'.$branch);
+        $this->fetchBranch($branch);
+        $this->integrateRemote('refs/remotes/origin/'.$branch);
     }
+
+    private function fetchBranch(string $branch): void
+    {
+        $this->run(['fetch', '--no-tags', 'origin', '+refs/heads/'.$branch.':refs/remotes/origin/'.$branch]);
+    }
+
+    /**
+     * Integrate a fetched revision without committing the working draft.
+     * Local edits win conflicts; independent remote edits are retained.
+     *
+     * Example: $git->integrateRemote('refs/remotes/origin/main');
+     * @param string $source Trusted local reference to the fetched revision.
+     * @throws Fault If integration or safe restoration fails.
+     * @see self::pull()
+     */
+    public function integrateRemote(string $source): void
+    {
+        $this->assertNoPendingPullStash();
+        $stash = null;
+        if ($this->run(['status', '--porcelain=v1', '-z']) !== '') {
+            if ($this->getRev() === '' || $this->run(['ls-files', '--unmerged', '-z']) !== '') {
+                throw new Fault('CONFLICT', 'Cannot stash draft without a valid index base');
+            }
+
+            // Include new files in the stash tree for ordinary add/add merges.
+            $this->run(['add', '--all', '--', '.']);
+            if ($this->run(['status', '--porcelain=v1', '-z']) !== '') {
+                $this->run(['stash', 'push', '--include-untracked', '--message', self::PULL_STASH_MESSAGE]);
+                $stash = $this->pendingPullStash();
+                if ($stash === null) {
+                    throw new Fault('CONFLICT', 'Cannot verify pull recovery stash');
+                }
+            }
+        }
+
+        // Restore the draft even if remote integration fails.
+        try {
+            $this->mergeOurs($source);
+        } catch (Fault $failure) {
+            if ($stash !== null) {
+                $this->restorePullStash($stash);
+            }
+            throw $failure;
+        }
+
+        if ($stash !== null) {
+            $this->restorePullStash($stash);
+        }
+    }
+
+    private function pendingPullStash(): ?string
+    {
+        $stash = trim($this->run(['for-each-ref', '--format=%(objectname)', 'refs/stash']));
+        if ($stash === '') {
+            return null;
+        }
+        $branch = trim($this->run(['symbolic-ref', '--short', 'HEAD']));
+        $subject = trim($this->run(['show', '-s', '--format=%s', $stash]));
+
+        return $subject === 'On ' . $branch . ': ' . self::PULL_STASH_MESSAGE ? $stash : null;
+    }
+
+    private function assertNoPendingPullStash(): void
+    {
+        if ($this->pendingPullStash() !== null) {
+            throw new Fault('CONFLICT', 'Previous pull draft is still in recovery stash; recover it or explicitly purge changes');
+        }
+    }
+
+    private function restorePullStash(string $stash): void
+    {
+        try {
+            // Stash apply has no -X option. A stash is a merge commit whose
+            // first parent is the old HEAD. A no-commit merge uses its tree
+            // and selects the draft (theirs) on conflicting changes.
+            $this->mergePreferred($stash, false, false);
+            $this->run(['reset', '--mixed', 'HEAD']);
+            if ($this->pendingPullStash() !== $stash) {
+                throw new Fault('CONFLICT', 'Pull recovery stash changed unexpectedly');
+            }
+            $this->run(['stash', 'drop', 'stash@{0}']);
+        } catch (Fault $failure) {
+            throw new Fault('CONFLICT', 'Could not restore pull draft; recovery stash retained', [
+                'cause' => ['code' => $failure->kind, 'message' => $failure->getMessage()],
+            ]);
+        }
+    }
+
     /** Merge remote changes, preferring this workspace at conflicting paths. */
     public function mergeOurs(string $source): void
     {
+        $this->mergePreferred($source, true, true);
+    }
+
+    private function mergePreferred(string $source, bool $ours, bool $commit): void
+    {
         try {
-            try { $this->run(['merge', '--no-edit', '--no-gpg-sign', '-X', 'ours', $source]); }
-            catch (Fault $e) {
-                if ($e->kind !== 'GIT_FAILED') throw $e;
+            $args = ['merge', '--no-edit', '--no-gpg-sign', '--no-overwrite-ignore',
+                '-X', $ours ? 'ours' : 'theirs'];
+            if (!$commit) {
+                array_push($args, '--no-commit', '--no-ff');
+            }
+            try {
+                $this->run([...$args, $source]);
+            } catch (Fault $failure) {
+                if ($failure->kind !== 'GIT_FAILED') {
+                    throw $failure;
+                }
                 $unmerged = $this->run(['ls-files', '--unmerged', '-z']);
-                if ($unmerged === '') throw $e;
+                if ($unmerged === '') {
+                    throw $failure;
+                }
+
+                // Resolve modify/delete conflicts by choosing the local side.
                 $paths = [];
                 foreach (explode("\0", rtrim($unmerged, "\0")) as $entry) {
                     [$header, $path] = explode("\t", $entry, 2);
                     Storage::relative($path);
-                    $paths[$path] = ($paths[$path] ?? false) || str_ends_with($header, ' 2');
+                    $paths[$path][(int) substr($header, -1)] = true;
                 }
-                // -X ours handles content/binary conflicts. For delete/modify conflicts,
-                // stage 2 is our side; absence there means our deletion wins.
-                foreach ($paths as $path => $oursExists) {
-                    if ($oursExists) {
-                        $this->run(['checkout', '--ours', '--', $path]);
-                        $this->run(['add', '--', $path]);
-                    } else $this->run(['rm', '-f', '--', $path]);
+                foreach ($paths as $path => $stages) {
+                    if (!isset($stages[1]) || isset($stages[2], $stages[3])) {
+                        // Do not discard unrelated files to resolve ambiguous
+                        // rename or directory/file conflicts.
+                        throw $failure;
+                    }
+                    $literal = ':(literal)' . $path;
+                    if (isset($stages[$ours ? 2 : 3])) {
+                        $this->run(['checkout', $ours ? '--ours' : '--theirs', '--', $literal]);
+                        $this->run(['add', '--', $literal]);
+                    } else {
+                        $this->run(['rm', '-f', '--', $literal]);
+                    }
                 }
-                $this->run(['commit', '--no-edit', '--no-gpg-sign']);
+                if ($this->run(['ls-files', '--unmerged', '-z']) !== '') {
+                    throw $failure;
+                }
+                if ($commit) {
+                    $this->run(['commit', '--no-edit', '--no-gpg-sign']);
+                }
             }
-        } catch (Fault $e) {
-            try { $this->run(['merge', '--abort']); } catch (Fault) {}
-            throw new Fault('MERGE_FAILED', 'Merge could not be completed; inspect workspace status', ['cause'=>['code'=>$e->kind,'message'=>$e->getMessage()]]);
+        } catch (Fault $failure) {
+            try {
+                $this->run(['merge', '--abort']);
+            } catch (Fault) {
+                // No merge state may exist if Git rejected the operation.
+            }
+            throw new Fault('MERGE_FAILED', 'Merge could not be completed; inspect workspace status', [
+                'cause' => ['code' => $failure->kind, 'message' => $failure->getMessage()],
+            ]);
         }
     }
-    public function push() { $this->run(['push', 'origin', 'HEAD:refs/heads/'.trim($this->run(['symbolic-ref', '--short', 'HEAD']))]); }
+
+    public function push()
+    {
+        $this->assertNoPendingPullStash();
+        $branch = trim($this->run(['symbolic-ref', '--short', 'HEAD']));
+        // Preserve remote history and non-conflicting changes. For each
+        // competing update, merge with the local side winning conflicts.
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $this->fetchBranch($branch);
+            $this->mergeOurs('refs/remotes/origin/'.$branch);
+            try {
+                $this->run(['push', 'origin', 'HEAD:refs/heads/'.$branch]);
+                return;
+            } catch (Fault $failure) {
+                if ($failure->kind !== 'PUSH_REJECTED' || $attempt === 2) {
+                    throw $failure;
+                }
+            }
+        }
+    }
+
     /**
      * Commits staged working-tree changes with a per-command Git identity.
      * The identity is not written to Git configuration and never affects push.
@@ -137,6 +283,10 @@ final class SecureGit extends GitRepository
      */
     public function commit(string $message, ?string $authorName = null, ?string $authorEmail = null)
     {
+        $this->assertNoPendingPullStash();
+        if ($this->run(['ls-files', '--unmerged', '-z']) !== '') {
+            throw new Fault('CONFLICT', 'Cannot commit an unresolved index');
+        }
         $this->run(['add', '--all', '--', '.']);
         if ($this->run(['diff', '--cached', '--name-only']) === '') {
             return;
@@ -158,7 +308,7 @@ final class SecureGit extends GitRepository
      */
     public function hasUnpushedChanges(): bool
     {
-        if ($this->run(['status', '--porcelain=v1', '-z']) !== '') {
+        if ($this->pendingPullStash() !== null || $this->run(['status', '--porcelain=v1', '-z']) !== '') {
             return true;
         }
 
@@ -338,6 +488,9 @@ final class SecureGit extends GitRepository
         $this->run(['reset', '--hard', $revision]);
         // Never use -x: ignored dependencies and local configuration must survive.
         $this->run(['clean', '-fd']);
+        if ($this->pendingPullStash() !== null) {
+            $this->run(['stash', 'drop', 'stash@{0}']);
+        }
     }
 
     public function getPublishedRevision(string $branch): ?string

@@ -112,34 +112,15 @@ final class Service
 
             switch ($method) {
                 case 'pull':
-                    // The full transaction runs under the same repository lock.
+                    // Stash, merge and draft restoration share one repository lock.
                     $this->requireSsh();
-                    $message = $params['message'] ?? 'Save local changes before pull';
-                    if (!is_string($message) || trim($message) === ''
-                        || strlen($message) > 8192 || str_contains($message, "\0")) {
-                        throw new Fault('INVALID_REQUEST', 'Invalid commit message');
-                    }
-                    $authorName = $params['authorName'] ?? null;
-                    $authorEmail = $params['authorEmail'] ?? null;
-                    if (array_key_exists('authorName', $params) !== array_key_exists('authorEmail', $params)
-                        || ($authorName !== null && (!is_string($authorName) || trim($authorName) === ''
-                            || strlen($authorName) > 256 || preg_match('/[\x00-\x1f\x7f]/', $authorName)
-                            || !is_string($authorEmail) || strlen($authorEmail) > 254
-                            || filter_var($authorEmail, FILTER_VALIDATE_EMAIL) === false))) {
-                        throw new Fault('INVALID_REQUEST', 'Invalid commit author name or email');
-                    }
-                    if ($git->run(['status', '--porcelain=v1']) !== '') {
-                        $git->commit($message, $authorName, $authorEmail);
-                    }
                     $git->pull();
                     $this->assertCheckoutPermissions($directory, true);
                     break;
 
                 case 'push':
                     $this->requireSsh();
-                    $git->push();
-                    break;
-
+                    // Commit and push share the same repository lock.
                 case 'commit':
                     $message = $params['message'] ?? 'Update workspace';
                     if (!is_string($message) || trim($message) === ''
@@ -160,6 +141,9 @@ final class Service
                         }
                     }
                     $git->commit($message, $authorName, $authorEmail);
+                    if ($method === 'push') {
+                        $git->push();
+                    }
                     break;
 
                 case 'getChangedFiles':
@@ -254,8 +238,8 @@ final class Service
         return $this->storage->lock($relative, function () use ($method, $params, $branch, $relative): array {
             // Dieselben Pfadregeln gelten auch für simulierte Operationen.
             $directory = $this->storage->directory($relative);
-            if ($method === 'commit' || $method === 'pull') {
-                $message = $params['message'] ?? ($method === 'pull' ? 'Save local changes before pull' : 'Update workspace');
+            if ($method === 'commit' || $method === 'push') {
+                $message = $params['message'] ?? 'Update workspace';
                 if (!is_string($message) || trim($message) === ''
                     || strlen($message) > 8192 || str_contains($message, "\0")) {
                     throw new Fault('INVALID_REQUEST', 'Invalid commit message');

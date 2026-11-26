@@ -76,7 +76,7 @@ nicht an Clients durchgereicht.
 |---|---|---|
 | `ping` | — | `pong`, `ready`, `errors` |
 | `pull` | — | `revision`; erstellt Checkout bei Bedarf |
-| `push` | — | `revision` |
+| `push` | `message?`, `authorName?`, `authorEmail?` | `revision`; Commit und Push |
 | `commit` | `message?`, `authorName?`, `authorEmail?` | `revision`; erzeugt keinen Leer-Commit |
 | `status` | — | `revision`, `hasUnpushedChanges` |
 | `log` | — | `entries` |
@@ -101,7 +101,7 @@ Es gelten die bestehenden Git-Ausgabe- und RPC-Größenlimits. Mocks melden
 `UNSUPPORTED`, da sie keine versionierten Dateiinhalte speichern.
 
 `authorName` und `authorEmail` müssen gemeinsam angegeben werden.
-Sie setzen nur für diesen `commit` den Git-Author und Committer; die
+Sie setzen nur für den Commit bei `commit` oder `push` den Author und Committer; die
 Identität wird nicht in der Git-Konfiguration gespeichert. Ohne beide
 Felder verwendet der Worker `MICX <micx@localhost>`.
 
@@ -109,9 +109,12 @@ Felder verwendet der Worker `MICX <micx@localhost>`.
 zusätzlicher Worker-RPC. Es gibt keine RPC-Methoden für allgemeine
 Dateizugriffe, Archivexport, Branch-Erstellung, Merge oder Release.
 
-`pull` erwartet bei bestehendem Checkout einen sauberen Git-Worktree.
-Bei Merge-Konflikten wird die lokale Seite bevorzugt; andere
-Merge-Fehler werden gemeldet. Push erfolgt ohne Force.
+`pull` sichert einen Dirty Working Tree temporär und stellt den Entwurf
+nach dem Merge wieder her, ohne ihn zu committen. Bei Konflikten gewinnt
+die lokale Seite, auch bei `push`. Konfliktfreie Remote-Änderungen bleiben
+erhalten. Push erfolgt ohne Force. Nicht sicher auflösbare Strukturkonflikte
+werden abgebrochen; der Recovery-Stash bleibt bei fehlgeschlagener
+Wiederherstellung erhalten. Siehe [Architektur](../ARCHITECTURE.md).
 
 ## § 5 Fehlgeschlagene Aufträge und Wiederholungen
 

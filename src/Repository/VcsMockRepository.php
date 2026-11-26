@@ -100,22 +100,9 @@ final class VcsMockRepository implements VcsRepository
             );
         }
 
-        if (trim($message) === '') {
-            throw new \InvalidArgumentException('Commit message must not be empty');
-        }
-        $journal = $this->readJournal();
-        $committed = $journal['committedHash'] ?? null;
-        // An entirely empty, never-used mock must not create an artificial commit.
-        $entries = new \FilesystemIterator($this->directory, \FilesystemIterator::SKIP_DOTS);
-        if ($committed === null && !$entries->valid()) {
-            return;
-        }
-        if ($this->fingerprint() !== $committed) {
-            $this->commit($message);
-        }
     }
 
-    /** Mirror remote sync: pull journals local changes, then push marks them published. */
+    /** Mirror remote sync: pull leaves drafts alone, push commits and publishes. */
     public function sync(): void
     {
         $this->pull();
@@ -169,13 +156,10 @@ final class VcsMockRepository implements VcsRepository
         $this->writeJournal($journal);
     }
 
-    public function push(): void
+    public function push(string $message = 'Update workspace'): void
     {
-        $this->getDirectory();
+        $this->commit($message);
         $journal = $this->readJournal();
-        if ($this->fingerprint() !== ($journal['committedHash'] ?? null)) {
-            throw new OperationFailedException(ErrorCode::CONFLICT, 'Vor dem Push müssen Änderungen committet werden.', 'push');
-        }
         $journal['pushedCommit'] = $journal['history'][0]['id'] ?? null;
         $this->writeJournal($journal);
     }

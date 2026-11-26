@@ -160,6 +160,11 @@ final class VcsRemoteRepository implements VcsRepository
     }
 
     /** @inheritDoc */
+    public function purgeChanged(): void
+    {
+        $this->client()->call('purgeChanged', $this->params());
+    }
+
     public function getChangedFiles(?string $revision = null, ?string $targetRevision = null): array
     {
         $result = $this->client()->call('getChangedFiles', $this->params() + ['revision' => $revision, 'targetRevision' => $targetRevision]);

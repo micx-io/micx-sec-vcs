@@ -23,7 +23,7 @@ final class SecureGit extends GitRepository
             'GIT_ATTR_NOSYSTEM'=>'1', 'GIT_NO_REPLACE_OBJECTS'=>'1'];
         // Nur Working-Tree-Schreiboperationen benötigen eine offene umask.
         // Git verwaltet Metadaten weiterhin mit privaten Rechten.
-        $writesWorktree = in_array($args[0] ?? '', ['checkout', 'merge'], true);
+        $writesWorktree = in_array($args[0] ?? '', ['checkout', 'merge', 'reset'], true);
         if ($writesWorktree) {
             array_push($base, '-c', 'core.sharedRepository=0600');
         }
@@ -330,6 +330,16 @@ final class SecureGit extends GitRepository
     }
 
     /** Last known published commit; null means this branch has never been published. */
+    public function purgeChanged(string $branch): void
+    {
+        $revision = $this->getPublishedRevision($branch);
+        if ($revision === null) throw new Fault('GIT_FAILED', 'Cannot discard changes without a published base.');
+        $this->run(['cat-file', '-e', $revision . '^{commit}']);
+        $this->run(['reset', '--hard', $revision]);
+        // Never use -x: ignored dependencies and local configuration must survive.
+        $this->run(['clean', '-fd']);
+    }
+
     public function getPublishedRevision(string $branch): ?string
     {
         $ref = 'refs/remotes/origin/' . Storage::branch($branch);

@@ -248,6 +248,8 @@ final class RepositoryTest extends TestCase
         );
         self::assertSame("file\0bytes\n", $repo->getFile('file.txt', null));
         self::assertNull($transport->requests[12]['params']['revision']);
+        $repo->purgeChanged();
+        self::assertSame('purgeChanged', $transport->requests[13]['method']);
         foreach ($transport->requests as $request) {
             self::assertSame([
                 'url' => 'git@example.com:example/site.git',

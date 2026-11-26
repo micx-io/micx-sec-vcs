@@ -180,6 +180,12 @@ final class VcsMockRepository implements VcsRepository
         $this->writeJournal($journal);
     }
 
+    /** Mock deliberately simulates success without changing files or journal. */
+    public function purgeChanged(): void
+    {
+        $this->getDirectory();
+    }
+
     public function hasUnpushedChanges(): bool
     {
         $this->getDirectory();

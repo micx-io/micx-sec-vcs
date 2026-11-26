@@ -60,6 +60,9 @@ interface VcsRepository
     /** Publish local commits to the remote. */
     public function push(): void;
 
+    /** Discard local commits and all non-ignored changes since the last known published state. */
+    public function purgeChanged(): void;
+
     /** True for dirty files OR committed changes not yet published. */
     public function hasUnpushedChanges(): bool;
 

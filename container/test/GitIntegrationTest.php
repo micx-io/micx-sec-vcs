@@ -148,6 +148,18 @@ final class GitIntegrationTest extends TestCase
         self::assertSame($head, $git->getRev());
         self::assertSame($status, $git->run(['status', '--porcelain=v1']));
 
+        $git->run(['config', 'core.excludesFile', $base . '/ignored-patterns']);
+        file_put_contents($base . '/ignored-patterns', "keep-local/\n");
+        mkdir($directory . '/keep-local');
+        file_put_contents($directory . '/keep-local/config', 'Keep');
+        $service->execute('purgeChanged', $params);
+        self::assertSame('Uncommitted', file_get_contents($directory . '/hello.txt'));
+        self::assertFileExists($directory . '/deleted.txt');
+        self::assertFileDoesNotExist($directory . '/added.txt');
+        self::assertFileDoesNotExist($directory . '/staged.txt');
+        self::assertSame('Keep', file_get_contents($directory . '/keep-local/config'));
+        self::assertSame(['added' => [], 'modified' => [], 'deleted' => []], $service->execute('getChangedFiles', $params));
+
         try {
             $service->execute('status', array_replace($params, ['directory' => '../invalid']));
             self::fail('Traversal accepted');

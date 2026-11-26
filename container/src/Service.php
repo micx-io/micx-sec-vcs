@@ -44,7 +44,7 @@ final class Service
             return ['pong' => true, 'ready' => $errors === [], 'errors' => $errors];
         }
 
-        if (!in_array($method, ['pull', 'push', 'commit', 'status', 'log', 'branches', 'getFile', 'getChangedFiles'], true)) {
+        if (!in_array($method, ['pull', 'push', 'commit', 'status', 'log', 'branches', 'getFile', 'getChangedFiles', 'purgeChanged'], true)) {
             throw new Fault('UNKNOWN_METHOD', 'Unknown RPC method');
         }
 
@@ -175,6 +175,10 @@ final class Service
                     $target = $targetRevision === null ? null : $this->resolveRevision($git, $targetRevision);
 
                     return $git->getChangesSincePush($branch, $base, $target);
+
+                case 'purgeChanged':
+                    $git->purgeChanged($branch);
+                    return ['revision' => $git->getRev()];
 
                 case 'getFile':
                     $path = Storage::relative($params['path'] ?? '');

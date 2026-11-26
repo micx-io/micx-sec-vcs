@@ -262,8 +262,7 @@ final class SecureGit extends GitRepository
     {
         // Ohne bisherigen Remote-Stand wird gegen den leeren Tree verglichen.
         if ($base === null) {
-            $ref = 'refs/remotes/origin/' . Storage::branch($branch);
-            $base = trim($this->run(['for-each-ref', '--format=%(objectname)', $ref]));
+            $base = $this->getPublishedRevision($branch) ?? '';
         }
         if ($base === '') {
             $base = trim($this->run(['hash-object', '-t', 'tree', '/dev/null']));
@@ -309,12 +308,17 @@ final class SecureGit extends GitRepository
      * Reads a blob directly from the Git object database, never the worktree.
      * @param string $path Validated repository-relative path.
      * @param string $ref Resolved commit object ID.
-     * @return string Original bytes, including trailing whitespace and NUL.
+     * @return string|null Original bytes, or null if absent from the valid revision.
      * @throws Fault If the revision or file cannot be read.
      * @see self::getHistory()
      */
-    public function readCommittedFile(string $path, string $ref): string
+    public function readCommittedFile(string $path, string $ref): ?string
     {
+        // Validate the tree separately: invalid revisions must never look like missing files.
+        $this->run(['cat-file', '-e', $ref . '^{tree}']);
+        if ($this->run(['ls-tree', '-z', $ref, '--', ':(literal)' . $path]) === '') {
+            return null;
+        }
         try {
             return $this->run(['cat-file', 'blob', $ref . ':' . $path]);
         } catch (Fault $e) {
@@ -323,6 +327,14 @@ final class SecureGit extends GitRepository
             }
             throw $e;
         }
+    }
+
+    /** Last known published commit; null means this branch has never been published. */
+    public function getPublishedRevision(string $branch): ?string
+    {
+        $ref = 'refs/remotes/origin/' . Storage::branch($branch);
+        $revision = trim($this->run(['for-each-ref', '--format=%(objectname)', $ref]));
+        return $revision === '' ? null : $revision;
     }
 
     public function getRev(): string

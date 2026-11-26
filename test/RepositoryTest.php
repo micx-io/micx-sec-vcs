@@ -246,6 +246,8 @@ final class RepositoryTest extends TestCase
             ['pull', 'commit', 'pull', 'push', 'status', 'log', 'branches', 'getFile', 'getFile', 'getChangedFiles', 'getChangedFiles', 'getChangedFiles'],
             array_column($transport->requests, 'method')
         );
+        self::assertSame("file\0bytes\n", $repo->getFile('file.txt', null));
+        self::assertNull($transport->requests[12]['params']['revision']);
         foreach ($transport->requests as $request) {
             self::assertSame([
                 'url' => 'git@example.com:example/site.git',

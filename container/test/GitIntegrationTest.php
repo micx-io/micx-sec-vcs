@@ -104,6 +104,15 @@ final class GitIntegrationTest extends TestCase
         self::assertSame($head, $git->getRev());
         self::assertSame($status, $git->run(['status', '--porcelain=v1']));
 
+        self::assertSame(['exists' => false, 'contentBase64' => null], $service->execute('getFile', $fileParams + ['revision' => null]));
+        self::assertSame(['exists' => false, 'contentBase64' => null], $service->execute('getFile', $params + ['path' => 'missing.txt']));
+        try {
+            $service->execute('getFile', $fileParams + ['revision' => str_repeat('0', 40)]);
+            self::fail('Invalid revisions must not be treated as missing files.');
+        } catch (\Micx\SecVcs\Fault $error) {
+            self::assertSame('GIT_FAILED', $error->kind);
+        }
+
         // Compare with the last known remote state, not with local HEAD.
         file_put_contents($directory . '/deleted.txt', 'delete me');
         $service->execute('commit', $params + ['message' => 'Published']);
@@ -117,6 +126,10 @@ final class GitIntegrationTest extends TestCase
         $git->run(['add', '--', 'staged.txt']);
         $head = $git->getRev();
         $status = $git->run(['status', '--porcelain=v1']);
+        self::assertSame(base64_encode('Uncommitted'), $service->execute('getFile', $fileParams + ['revision' => null])['contentBase64']);
+        self::assertSame(base64_encode('Local commit'), $service->execute('getFile', $fileParams)['contentBase64']);
+        self::assertSame(['exists' => false, 'contentBase64' => null], $service->execute('getFile', $params + ['path' => 'added.txt', 'revision' => null]));
+        self::assertSame(base64_encode('delete me'), $service->execute('getFile', $params + ['path' => 'deleted.txt', 'revision' => null])['contentBase64']);
         $expected = ['added' => ['added.txt', 'staged.txt'], 'modified' => ['hello.txt'], 'deleted' => ['deleted.txt']];
         self::assertSame($expected, $service->execute('getChangedFiles', $params));
         self::assertSame($expected, $service->execute('getChangedFiles', $params + ['revision' => 'published']));

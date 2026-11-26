@@ -190,7 +190,7 @@ final class VcsMockRepository implements VcsRepository
     }
 
     /** @inheritDoc */
-    public function getFile(string $path, string $revision = 'HEAD'): string
+    public function getFile(string $path, ?string $revision = 'HEAD'): ?string
     {
         throw new OperationFailedException(
             ErrorCode::UNSUPPORTED_OPERATION,

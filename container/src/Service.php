@@ -178,14 +178,18 @@ final class Service
 
                 case 'getFile':
                     $path = Storage::relative($params['path'] ?? '');
-                    $revision = $params['revision'] ?? 'HEAD';
-                    if (!is_string($revision)) {
-                        throw new Fault('INVALID_REQUEST', 'revision must be a string');
+                    $revision = array_key_exists('revision', $params) ? $params['revision'] : 'HEAD';
+                    if ($revision !== null && !is_string($revision)) {
+                        throw new Fault('INVALID_REQUEST', 'revision must be a string or null');
                     }
-
-                    return ['contentBase64' => base64_encode(
-                        $git->readCommittedFile($path, $this->resolveRevision($git, $revision))
-                    )];
+                    $resolved = $revision === null
+                        ? $git->getPublishedRevision($branch)
+                        : $this->resolveRevision($git, $revision);
+                    $content = $resolved === null ? null : $git->readCommittedFile($path, $resolved);
+                    return [
+                        'exists' => $content !== null,
+                        'contentBase64' => $content === null ? null : base64_encode($content),
+                    ];
 
                 case 'status':
                     return [

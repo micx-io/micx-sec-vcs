@@ -70,12 +70,12 @@ interface VcsRepository
      *
      * Example: $content = $repo->getFile('index.html', 'v1.0.0');
      * @param string $path Repository-relative file path.
-     * @param string $revision HEAD, tag name or full local commit hash.
-     * @return string Original file contents, including binary data.
+     * @param string|null $revision HEAD, tag, full commit hash; null selects the last known published state.
+     * @return string|null Original bytes; null if the file did not exist at that version.
      * @throws \Micx\Vcs\Exception\VcsException If unavailable or the RPC fails.
      * @see self::getHistory()
      */
-    public function getFile(string $path, string $revision = 'HEAD'): string;
+    public function getFile(string $path, ?string $revision = 'HEAD'): ?string;
 
     /**
      * Compares a selected revision or last known pushed state with the working tree or another revision.

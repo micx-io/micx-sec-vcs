@@ -144,9 +144,12 @@ final class VcsRemoteRepository implements VcsRepository
     }
 
     /** @inheritDoc */
-    public function getFile(string $path, string $revision = 'HEAD'): string
+    public function getFile(string $path, ?string $revision = 'HEAD'): ?string
     {
         $result = $this->client()->call('getFile', $this->params() + ['path' => $path, 'revision' => $revision]);
+        if (($result['exists'] ?? null) === false && array_key_exists('contentBase64', $result) && $result['contentBase64'] === null) {
+            return null;
+        }
         $encoded = $result['contentBase64'] ?? null;
         $content = is_string($encoded) ? base64_decode($encoded, true) : false;
         if ($content === false) {

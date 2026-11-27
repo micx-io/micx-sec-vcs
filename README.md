@@ -130,6 +130,13 @@ Die lokalen Client-Mocks unterscheiden sich vom **serverseitigen**
 schon existieren, auch bei `pull`. Ein fehlender Checkout liefert
 `NOT_FOUND`. In Production bleibt der Mock Mode deaktiviert.
 
+`getFile()` liefert in beiden Mock-Modi einen festen Text mit dem Marker
+`[MOCK MODE - Generated Original Content]` als simulierten Originalinhalt.
+Damit kann der Diff View ohne Git-Historie getestet werden. Der Platzhalter
+ist unabhängig von Datei und Revision und kein Nachweis ihrer Existenz.
+Zum Bearbeiten ist der aktuelle Dateiinhalt als Original-Basis zu verwenden,
+nicht der Platzhalter. Im produktiven Betrieb bleibt `getFile()` unverändert.
+
 `getChangedFiles()` liefert sowohl im lokalen Client-Mock als auch im
 serverseitigen Mock Mode immer drei simulierte Änderungen:
 

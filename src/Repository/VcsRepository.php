@@ -69,12 +69,15 @@ interface VcsRepository
     /**
      * Reads exact committed file bytes without changing the checkout or index.
      * HEAD refers to the local commit; a tag or full commit hash selects history.
-     * Missing local tags can be fetched from origin. Mocks have no file history.
+     * Missing local tags can be fetched from origin. Both mocks return a fixed
+     * '[MOCK MODE - Generated Original Content]' placeholder instead of historical
+     * bytes. Use the current working tree content as the editing baseline in mocks.
      *
      * Example: $content = $repo->getFile('index.html', 'v1.0.0');
      * @param string $path Repository-relative file path.
      * @param string|null $revision HEAD, tag, full commit hash; null selects the last known published state.
-     * @return string|null Original bytes; null if the file did not exist at that version.
+     * @return string|null Original bytes, or a synthetic placeholder in mocks;
+     *                     null if the file did not exist at a real revision.
      * @throws \Micx\Vcs\Exception\VcsException If unavailable or the RPC fails.
      * @see self::getHistory()
      */

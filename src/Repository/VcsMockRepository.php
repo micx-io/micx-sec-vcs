@@ -182,11 +182,9 @@ final class VcsMockRepository implements VcsRepository
     /** @inheritDoc */
     public function getFile(string $path, ?string $revision = 'HEAD'): ?string
     {
-        throw new OperationFailedException(
-            ErrorCode::UNSUPPORTED_OPERATION,
-            'Mock-Repositories speichern keine versionierten Dateiinhalte: ' . $path,
-            'getFile'
-        );
+        $this->getDirectory();
+
+        return "[MOCK MODE - Generated Original Content]\n\nThe actual original file content is unavailable in this environment.\nFor editing purposes, treat the current file content as the original baseline.\n";
     }
 
     /** @inheritDoc */

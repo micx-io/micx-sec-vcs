@@ -81,7 +81,7 @@ nicht an Clients durchgereicht.
 | `status` | — | `revision`, `hasUnpushedChanges` |
 | `log` | — | `entries` |
 | `branches` | — | `branches` |
-| `getFile` | `path`, optional `revision` (Standard `HEAD`) | `contentBase64` |
+| `getFile` | `path`, optional `revision` (Standard `HEAD`) | `exists`, `contentBase64` |
 | `getChangedFiles` | optional `revision` (`null` = Remote-Tracking-Ref), optional `targetRevision` (`null` = Working Tree) | `added`, `modified`, `deleted` (Listen relativer Pfade) |
 
 `getChangedFiles` vergleicht den Working Tree standardmäßig mit dem lokalen
@@ -97,8 +97,14 @@ Umbenennungen als Löschung plus Neuanlage. Beide Mock-Modi melden
 werden unverändert übertragen (Base64). `revision` ist `HEAD`, ein
 vollständiger lokaler Commit-Hash oder ein Tagname. Fehlende Tags werden
 gezielt von `origin` geholt, ohne Index oder Working Tree zu verändern.
-Es gelten die bestehenden Git-Ausgabe- und RPC-Größenlimits. Mocks melden
-`UNSUPPORTED`, da sie keine versionierten Dateiinhalte speichern.
+Es gelten die bestehenden Git-Ausgabe- und RPC-Größenlimits. Im serverseitigen
+Mock Mode liefert `getFile` eine reguläre Erfolgsantwort mit `exists: true`,
+`contentBase64` (Base64-kodierter Text mit dem Marker
+`[MOCK MODE - Generated Original Content]`) und `mockMode: true`.
+Der feste Platzhalter simuliert unabhängig von Datei und Revision einen
+Originalinhalt für den Diff View; er ist keine Aussage zur tatsächlichen
+Existenz oder Historie der Datei. Auch der lokale Client-Mock liefert diesen
+Text. Als Bearbeitungsbasis gilt im Mock Mode der aktuelle Dateiinhalt.
 
 `authorName` und `authorEmail` müssen gemeinsam angegeben werden.
 Sie setzen nur für den Commit bei `commit` oder `push` den Author und Committer; die

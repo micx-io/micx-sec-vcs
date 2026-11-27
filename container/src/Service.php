@@ -275,7 +275,22 @@ final class Service
                 ];
             }
             if ($method === 'getFile') {
-                throw new Fault('UNSUPPORTED', 'Mock mode does not store versioned file contents');
+                Storage::relative($params['path'] ?? '');
+                $revision = array_key_exists('revision', $params) ? $params['revision'] : 'HEAD';
+                if ($revision !== null && !is_string($revision)) {
+                    throw new Fault('INVALID_REQUEST', 'revision must be a string or null');
+                }
+                if ($revision !== null && $revision !== 'HEAD'
+                    && !preg_match('/^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/D', $revision)) {
+                    Storage::branch($revision);
+                }
+
+                $content = "[MOCK MODE - Generated Original Content]\n\nThe actual original file content is unavailable in this environment.\nFor editing purposes, treat the current file content as the original baseline.\n";
+                return [
+                    'exists' => true,
+                    'contentBase64' => base64_encode($content),
+                    'mockMode' => true,
+                ];
             }
             if ($method === 'status') {
                 return ['revision' => '', 'hasUnpushedChanges' => false, 'mockMode' => true];
